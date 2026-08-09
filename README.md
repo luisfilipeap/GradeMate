@@ -195,10 +195,11 @@ first load takes several minutes.
 
 ## Getting started
 
-Requirements: Docker (for PostgreSQL), Python 3.11+ and Node.js 20+.
+Requirements: Docker, Python 3.11+ and Node.js 20+. The OCR service additionally needs an NVIDIA
+GPU with the `nvidia-container-toolkit` — see [OCR service](#ocr-service) to run it on the CPU.
 
 ```bash
-# 1. Start PostgreSQL
+# 1. Start the containers: PostgreSQL, Adminer and the OCR service
 docker compose up -d
 
 # 2. Create a virtual environment and install the project
@@ -217,7 +218,19 @@ npm --prefix frontend install
 
 ## Running the application
 
-Two processes, in two terminals:
+GradeMate runs as five processes, and they do **not** have the same lifetime:
+
+| Process         | Port | Started by           | Survives closing the terminal? |
+| --------------- | ---- | -------------------- | ------------------------------ |
+| PostgreSQL      | 5432 | `docker compose up`  | yes (`restart: unless-stopped`) |
+| Adminer         | 8080 | `docker compose up`  | yes                            |
+| OCR service     | 8001 | `docker compose up`  | yes                            |
+| API             | 8000 | `uvicorn`, by hand   | no                             |
+| Web interface   | 5173 | `vite`, by hand      | no                             |
+
+The containers come back on their own after a reboot, so `docker compose ps` looking healthy does
+not mean the application is up. The API and the web interface are foreground processes that have to
+be started again in each session:
 
 ```bash
 # Terminal 1 - API on http://localhost:8000 (docs at /docs)
@@ -233,8 +246,15 @@ only ever talks to one origin and no CORS configuration is needed.
 Without Node.js installed, the same commands run inside a container:
 
 ```bash
-docker run --rm --network host -u "$(id -u):$(id -g)" -e HOME=/tmp \
+docker run --rm --name grademate-vite --network host -u "$(id -u):$(id -g)" -e HOME=/tmp \
   -v "$PWD/frontend":/work -w /work node:22-alpine npm run dev
+```
+
+If a page will not load, check which of the five is actually listening:
+
+```bash
+docker compose ps
+ss -ltn | grep -E ':(5173|8000|8001|8080|5432)'
 ```
 
 The interface follows the order a teacher works in: **class → students → assessment → exams**. The
