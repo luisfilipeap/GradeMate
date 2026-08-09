@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -31,14 +30,7 @@ def get_review(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
 
 
 @router.post("/submissions/{submission_id}/ocr", response_model=ReviewRead)
-def run_ocr(
-    submission_id: uuid.UUID,
-    session: SessionDep,
-    engine: Annotated[
-        Literal["ocr", "vl"],
-        Query(description="`ocr` for the fast PP-OCR pipeline, `vl` for PaddleOCR-VL."),
-    ] = "ocr",
-) -> ReviewRead:
+def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
     """Rasterise the PDF, send every page to the OCR service and store the result.
 
     Running it again discards the previous reading, including the teacher's
@@ -62,12 +54,7 @@ def run_ocr(
 
     try:
         recognised = [
-            (
-                page,
-                recognise_image(
-                    page.png, f"page-{page.number}.png", engine, page.width, page.height
-                ),
-            )
+            (page, recognise_image(page.png, f"page-{page.number}.png", page.width, page.height))
             for page in rendered
         ]
     except OcrServiceError as error:
@@ -78,7 +65,7 @@ def run_ocr(
         session.delete(page)
     session.flush()
 
-    for rendered_page, lines in recognised:
+    for rendered_page, regions in recognised:
         image_path = storage.submission_page_image_path(
             submission.assessment_id, submission.student_id, rendered_page.number
         )
@@ -90,19 +77,10 @@ def run_ocr(
             width=rendered_page.width,
             height=rendered_page.height,
             image_path=image_path,
-            engine=engine,
         )
         page.lines = [
-            OcrLine(
-                position=position,
-                text=region.text,
-                confidence=(
-                    None if region.confidence is None else min(max(region.confidence, 0.0), 1.0)
-                ),
-                label=region.label,
-                box=region.box,
-            )
-            for position, region in enumerate(lines, 1)
+            OcrLine(position=position, text=region.text, label=region.label, box=region.box)
+            for position, region in enumerate(regions, 1)
         ]
         session.add(page)
 
@@ -163,6 +141,5 @@ def _to_review(submission: Submission) -> ReviewRead:
         student_id=submission.student_id,
         assessment_id=submission.assessment_id,
         page_count=len(submission.pages),
-        engine=submission.pages[0].engine if submission.pages else None,
         pages=submission.pages,
     )

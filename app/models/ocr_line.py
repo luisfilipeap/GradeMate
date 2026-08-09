@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
-    CheckConstraint,
-    Float,
     ForeignKey,
     Integer,
     String,
@@ -33,12 +31,7 @@ class OcrLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "ocr_lines"
-    __table_args__ = (
-        UniqueConstraint("page_id", "position", name="uq_ocr_lines_page_position"),
-        CheckConstraint(
-            "confidence IS NULL OR (confidence >= 0 AND confidence <= 1)", name="confidence_range"
-        ),
-    )
+    __table_args__ = (UniqueConstraint("page_id", "position", name="uq_ocr_lines_page_position"),)
 
     page_id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True),
@@ -58,10 +51,7 @@ class OcrLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # True once the teacher has confirmed the line, edited or not.
     accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # PaddleOCR-VL reports no per-block score, so this stays NULL for that engine.
-    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
-
-    # Region type given by PaddleOCR-VL: "text", "inline_formula", "table"…
+    # Region type given by the model: "text", "inline_formula", "table"…
     label: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
     # Polygon around the line, as [[x, y], ...] in pixels of the page image.

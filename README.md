@@ -92,7 +92,7 @@ erDiagram
         text text "as recognised"
         text corrected_text "nullable"
         bool accepted
-        float confidence
+        string label "text, formula, table…"
         jsonb box "polygon in page pixels"
         timestamptz created_at
         timestamptz updated_at
@@ -134,27 +134,21 @@ ones (`resolve`, which refuses any path that escapes the storage root).
 `services/ocr/` is a separate FastAPI service that wraps [PaddleOCR](https://www.paddleocr.ai/).
 `docker compose up -d` starts it on <http://localhost:8001> (documentation at `/docs`).
 
-It exposes **two engines**, because they read a page in very different ways:
+The engine is **PaddleOCR-VL**, a 0.9B vision-language model. Instead of short text lines it returns
+labelled **blocks** — `text`, `inline_formula`, `display_formula`, `table`, `header` — with
+mathematics transcribed as LaTeX, which is what makes it usable on handwritten exams. It reports no
+per-region confidence.
 
-| Endpoint  | Engine       | Returns                              | Per page | Confidence |
-| --------- | ------------ | ------------------------------------ | -------- | ---------- |
-| `/ocr`    | PP-OCRv6     | short **lines**                      | ~2 s     | yes        |
-| `/ocr-vl` | PaddleOCR-VL | labelled **blocks**, markdown/LaTeX  | ~15 s    | no         |
-
-PP-OCR is fast and fine on printed text. PaddleOCR-VL is a 0.9B vision-language model: much better
-on handwriting, it transcribes mathematics as LaTeX and labels each region (`text`,
-`inline_formula`, `display_formula`, `table`, `header`). Measured on a real handwritten exam, PP-OCR
-read the student's name as *"Gluno: Joas bitor Paive Gomes"* while the VL read *"Aluno: Toas Victor
-Paine Gomes"* and transcribed the matrices correctly.
-
-Both engines load lazily and stay in memory; together they use about 5.5 GB of GPU memory.
+The classic PP-OCR pipeline was tried first and dropped: on a real handwritten exam it read the
+student's name as *"Gluno: Joas bitor Paive Gomes"*, where the VL reads *"Aluno: Toas Victor Paine
+Gomes"* and transcribes the matrices correctly. The VL costs about 15 s per page against 2 s, and
+roughly 4 GB of GPU memory.
 
 ```bash
 curl -F "file=@exam.pdf" http://localhost:8001/ocr
-curl -F "file=@exam.pdf" http://localhost:8001/ocr-vl
 ```
 
-`/ocr` answers with one entry per page, and one entry per recognised line inside it:
+It answers with one entry per page, and one entry per recognised block inside it:
 
 ```json
 {
@@ -163,14 +157,21 @@ curl -F "file=@exam.pdf" http://localhost:8001/ocr-vl
   "pages": [
     {
       "number": 1,
-      "lines": [{ "text": "Question 1.", "confidence": 0.99, "box": [[86, 301], [201, 301], …] }]
+      "width": 1240,
+      "height": 1755,
+      "blocks": [
+        {
+          "label": "inline_formula",
+          "content": "$$ \\widetilde{x}=\\begin{bmatrix}1&1&1\\\\ 2&-1&1\\end{bmatrix} $$",
+          "box": [[540, 556], [757, 556], [757, 630], [540, 630]],
+          "order": 4
+        }
+      ]
     }
   ],
-  "text": "Question 1.\n…"
+  "text": "…"
 }
 ```
-
-`/ocr-vl` answers with `blocks` instead of `lines`, each carrying `label`, `content` and `box`.
 
 The bounding boxes are what let GradeMate show the teacher where on the page an answer was found.
 The service is stateless and never stores the uploaded file.
@@ -180,18 +181,13 @@ CUDA 12.6 and the `nvidia-container-toolkit` installed on the host. To run it on
 set `OCR_DEVICE=cpu` in `docker-compose.yml`, remove the `deploy.resources` block and replace
 `paddlepaddle-gpu` with `paddlepaddle` in `services/ocr/Dockerfile`.
 
-| Variable                       | Default | Purpose                                              |
-| ------------------------------ | ------- | ---------------------------------------------------- |
-| `OCR_LANG`                     | `pt`    | Recognition language (`pt`, `en`, `es`, `fr`, …)     |
-| `OCR_DEVICE`                   | `gpu:0` | `gpu:0` or `cpu`                                     |
-| `OCR_PRELOAD`                  | `false` | Load the models at startup instead of on first use   |
-| `OCR_USE_DOC_ORIENTATION`      | `false` | Detect rotated pages (extra model)                   |
-| `OCR_USE_DOC_UNWARPING`        | `false` | Flatten curved pages (extra model)                   |
-| `OCR_USE_TEXTLINE_ORIENTATION` | `false` | Detect rotated text lines (extra model)              |
+| Variable      | Default | Purpose                                           |
+| ------------- | ------- | ------------------------------------------------- |
+| `OCR_DEVICE`  | `gpu:0` | `gpu:0` or `cpu`                                  |
+| `OCR_PRELOAD` | `false` | Load the model at startup instead of on first use |
 
-The model weights are downloaded on the first request into the `grademate_ocr_models` volume, so
-that first call takes a few minutes while later ones do not. PaddleOCR-VL is around 2 GB, and its
-first load takes several minutes.
+The weights are downloaded on the first request into the `grademate_ocr_models` volume. They are
+around 2 GB, so that first call takes several minutes while later ones do not.
 
 ## Getting started
 
@@ -273,14 +269,10 @@ checked by their file header, so a renamed document is rejected.
 back. Because the image shown and the image read are the same raster, the boxes always sit exactly
 on top of the handwriting.
 
-The engine is picked on that screen: **PP-OCR** for speed, **PaddleOCR-VL** for handwriting and
-mathematics. The stored regions remember which engine produced them, and a region read by the VL
-carries its label and no confidence score.
-
-The screen puts the page on the left, with one box per recognised line, and on the right the list of
-lines. Each line can be **accepted** as it was read or **rewritten**; hovering either side highlights
-the matching box. Accepted lines build the plain-text transcript below the list, which is what later
-steps of the product will grade.
+The screen puts the page on the left, with one box per recognised region, and on the right the list
+of regions with the label the model gave each one. A region can be **accepted** as it was read or
+**rewritten**; hovering either side highlights the matching box. Accepted regions build the
+plain-text transcript below the list, which is what later steps of the product will grade.
 
 Corrections never overwrite the original: `ocr_lines.text` keeps the OCR reading and
 `ocr_lines.corrected_text` holds the teacher's version. Running the OCR again discards the previous

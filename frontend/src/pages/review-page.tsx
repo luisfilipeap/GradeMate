@@ -9,17 +9,8 @@ import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { api, type OcrEngine, type OcrLine, type Review, type Student } from '@/lib/api'
+import { api, type OcrLine, type Review, type Student } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-const ENGINES: { value: OcrEngine; label: string; hint: string }[] = [
-  { value: 'ocr', label: 'PP-OCR', hint: 'Fast, one short line per region. Best on printed text.' },
-  {
-    value: 'vl',
-    label: 'PaddleOCR-VL',
-    hint: 'Slower, reads blocks with formulas in LaTeX. Much better on handwriting.',
-  },
-]
 
 /** What the transcript shows for a line: the teacher's edit, or the OCR reading. */
 function finalText(line: OcrLine): string {
@@ -44,7 +35,6 @@ export function ReviewPage() {
   const [activeLineId, setActiveLineId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
-  const [engine, setEngine] = useState<OcrEngine>('vl')
 
   useEffect(() => {
     if (!submissionId || !classId) return
@@ -52,7 +42,6 @@ export function ReviewPage() {
       .getReview(submissionId)
       .then(async (data) => {
         setReview(data)
-        if (data.engine) setEngine(data.engine)
         const students = await api.listStudents(classId)
         setStudent(students.find((item) => item.id === data.student_id) ?? null)
       })
@@ -91,10 +80,10 @@ export function ReviewPage() {
     if (!submissionId) return
     setRunning(true)
     try {
-      const data = await api.runOcr(submissionId, engine)
+      const data = await api.runOcr(submissionId)
       setReview(data)
       setPageIndex(0)
-      toast.success(`Recognised ${data.pages.reduce((sum, p) => sum + p.lines.length, 0)} lines.`)
+      toast.success(`Recognised ${data.pages.reduce((sum, p) => sum + p.lines.length, 0)} regions.`)
     } catch (error) {
       toast.error((error as Error).message)
     } finally {
@@ -138,7 +127,6 @@ export function ReviewPage() {
             <Badge variant="secondary">
               {acceptedCount} of {allLines.length} regions
             </Badge>
-            <EnginePicker value={engine} disabled={running} onChange={setEngine} />
             <Button variant="ghost" disabled={running} onClick={() => void handleRunOcr()}>
               <ScanText className="size-4" />
               {running ? 'Reading…' : 'Read again'}
@@ -153,16 +141,10 @@ export function ReviewPage() {
           title="This exam has not been read yet"
           description="Running the OCR renders every page and asks the recognition service what is written on it. It takes a few seconds per page."
         >
-          <div className="flex flex-col items-center gap-3">
-            <EnginePicker value={engine} disabled={running} onChange={setEngine} />
-            <p className="text-muted-foreground max-w-xs text-xs">
-              {ENGINES.find((item) => item.value === engine)?.hint}
-            </p>
-            <Button disabled={running} onClick={() => void handleRunOcr()}>
-              <ScanText className="size-4" />
-              {running ? 'Reading the exam…' : 'Run OCR'}
-            </Button>
-          </div>
+          <Button disabled={running} onClick={() => void handleRunOcr()}>
+            <ScanText className="size-4" />
+            {running ? 'Reading the exam…' : 'Run OCR'}
+          </Button>
         </EmptyState>
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_460px]">
@@ -195,12 +177,7 @@ export function ReviewPage() {
           <div className="space-y-6 xl:sticky xl:top-6 xl:self-start">
             <section className="space-y-2">
               <div className="flex items-center justify-between">
-                <h2 className="font-heading text-sm font-semibold">
-                  Recognised regions
-                  <span className="text-muted-foreground ml-2 font-normal">
-                    {ENGINES.find((item) => item.value === review.engine)?.label}
-                  </span>
-                </h2>
+                <h2 className="font-heading text-sm font-semibold">Recognised regions</h2>
                 <Button variant="ghost" size="sm" onClick={() => void acceptAll()}>
                   <Check className="size-4" />
                   Accept all
@@ -243,33 +220,6 @@ export function ReviewPage() {
         </div>
       )}
     </>
-  )
-}
-
-function EnginePicker({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: OcrEngine
-  disabled: boolean
-  onChange: (engine: OcrEngine) => void
-}) {
-  return (
-    <div className="bg-muted flex items-center rounded-lg p-[3px]">
-      {ENGINES.map((item) => (
-        <Button
-          key={item.value}
-          size="sm"
-          variant={item.value === value ? 'outline' : 'ghost'}
-          disabled={disabled}
-          title={item.hint}
-          onClick={() => onChange(item.value)}
-        >
-          {item.label}
-        </Button>
-      ))}
-    </div>
   )
 }
 
@@ -362,11 +312,6 @@ function LineRow({
               {finalText(line)}
             </span>
           </div>
-          {line.confidence !== null ? (
-            <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
-              {Math.round(line.confidence * 100)}%
-            </span>
-          ) : null}
           <div className="flex shrink-0 items-center">
             <Button
               size="icon-sm"

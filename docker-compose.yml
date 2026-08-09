@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Text recognition for the scanned exams, backed by PaddleOCR.
+  # Text recognition for the scanned exams, backed by PaddleOCR-VL.
   ocr:
     build: ./services/ocr
     container_name: grademate-ocr
@@ -25,7 +25,6 @@ services:
     ports:
       - "8001:8001"
     environment:
-      OCR_LANG: pt
       OCR_DEVICE: gpu:0
     volumes:
       - grademate_ocr_models:/models

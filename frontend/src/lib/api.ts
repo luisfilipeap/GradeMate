@@ -69,16 +69,11 @@ export type OcrLine = {
   text: string
   corrected_text: string | null
   accepted: boolean
-  /** Null for PaddleOCR-VL, which reports no per-block score. */
-  confidence: number | null
-  /** Region type given by PaddleOCR-VL: "text", "inline_formula", "table"… */
+  /** Region type: "text", "inline_formula", "display_formula", "table"… */
   label: string | null
   /** Polygon in pixels of the page image: [[x, y], ...]. */
   box: number[][]
 }
-
-/** `ocr` is the fast PP-OCR pipeline, `vl` is PaddleOCR-VL. */
-export type OcrEngine = 'ocr' | 'vl'
 
 export type SubmissionPage = {
   id: string
@@ -86,7 +81,6 @@ export type SubmissionPage = {
   number: number
   width: number
   height: number
-  engine: OcrEngine
   lines: OcrLine[]
 }
 
@@ -95,7 +89,6 @@ export type Review = {
   student_id: string
   assessment_id: string
   page_count: number
-  engine: OcrEngine | null
   pages: SubmissionPage[]
 }
 
@@ -190,8 +183,8 @@ export const api = {
   submissionFileUrl: (submissionId: string) => `/api/submissions/${submissionId}/file`,
 
   getReview: (submissionId: string) => request<Review>(`/submissions/${submissionId}/review`),
-  runOcr: (submissionId: string, engine: OcrEngine) =>
-    request<Review>(`/submissions/${submissionId}/ocr?engine=${engine}`, { method: 'POST' }),
+  runOcr: (submissionId: string) =>
+    request<Review>(`/submissions/${submissionId}/ocr`, { method: 'POST' }),
   updateLine: (lineId: string, input: { corrected_text?: string | null; accepted?: boolean }) =>
     request<OcrLine>(`/ocr-lines/${lineId}`, { method: 'PATCH', body: JSON.stringify(input) }),
   pageImageUrl: (pageId: string) => `/api/pages/${pageId}/image`,

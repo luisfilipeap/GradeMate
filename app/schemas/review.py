@@ -17,9 +17,7 @@ class OcrLineRead(BaseModel):
     text: str
     corrected_text: str | None
     accepted: bool
-    # NULL for PaddleOCR-VL, which reports no per-block score.
-    confidence: float | None
-    # Region type given by PaddleOCR-VL: "text", "inline_formula", "table"…
+    # Region type: "text", "inline_formula", "display_formula", "table"…
     label: str | None
     # Polygon in pixels of the page image: [[x, y], ...].
     box: list[list[float]]
@@ -45,7 +43,6 @@ class SubmissionPageRead(BaseModel):
     number: int
     width: int
     height: int
-    engine: str
     lines: list[OcrLineRead] = []
 
 
@@ -56,6 +53,4 @@ class ReviewRead(BaseModel):
     student_id: uuid.UUID
     assessment_id: uuid.UUID
     page_count: int
-    # Engine that produced the current reading, or None before the first run.
-    engine: str | None
     pages: list[SubmissionPageRead]

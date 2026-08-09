@@ -48,9 +48,6 @@ class SubmissionPage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Path of the PNG relative to the storage root.
     image_path: Mapped[str] = mapped_column(String(512), nullable=False)
 
-    # Which engine produced the lines of this page: "ocr" or "vl".
-    engine: Mapped[str] = mapped_column(String(20), nullable=False, server_default="ocr")
-
     submission: Mapped[Submission] = relationship(back_populates="pages")
     lines: Mapped[list[OcrLine]] = relationship(
         back_populates="page",

@@ -1,4 +1,4 @@
-"""Client for the PaddleOCR service defined in services/ocr."""
+"""Client for the PaddleOCR-VL service defined in services/ocr."""
 
 from __future__ import annotations
 
@@ -16,29 +16,23 @@ class OcrServiceError(RuntimeError):
 
 @dataclass(frozen=True)
 class RecognisedRegion:
-    """A region of a page, as read by either engine.
-
-    The classic engine returns short lines with a confidence and no label; the
-    VL engine returns larger labelled blocks with no confidence.
-    """
+    """A labelled region of a page, as read by the model."""
 
     text: str
     box: list[list[float]]
-    confidence: float | None = None
     label: str | None = None
 
 
 def recognise_image(
-    png: bytes, filename: str, engine: str, page_width: int, page_height: int
+    png: bytes, filename: str, page_width: int, page_height: int
 ) -> list[RecognisedRegion]:
     """Send one rendered page to the OCR service and return what it read.
 
     Boxes come back in the coordinate space of the image the service worked on,
-    which the VL pipeline may resize; they are rescaled here to the pixels of
-    the image we rendered, the one the interface displays.
+    which the pipeline may resize; they are rescaled here to the pixels of the
+    image we rendered, the one the interface displays.
     """
-    path = "/ocr-vl" if engine == "vl" else "/ocr"
-    payload = _post(path, png, filename)
+    payload = _post(png, filename)
 
     regions = []
     for page in payload.get("pages", []):
@@ -48,9 +42,9 @@ def recognise_image(
     return regions
 
 
-def _post(path: str, png: bytes, filename: str) -> dict[str, Any]:
+def _post(png: bytes, filename: str) -> dict[str, Any]:
     settings = get_settings()
-    url = f"{settings.ocr_service_url.rstrip('/')}{path}"
+    url = f"{settings.ocr_service_url.rstrip('/')}/ocr"
 
     try:
         response = httpx.post(
@@ -70,26 +64,13 @@ def _post(path: str, png: bytes, filename: str) -> dict[str, Any]:
 
 
 def _regions(page: dict[str, Any], scale_x: float, scale_y: float) -> list[RecognisedRegion]:
-    def box(points: Any) -> list[list[float]]:
-        return [[float(x) * scale_x, float(y) * scale_y] for x, y in points]
-
-    if "blocks" in page:
-        return [
-            RecognisedRegion(
-                text=block["content"],
-                box=box(block["box"]),
-                label=block.get("label"),
-            )
-            for block in page["blocks"]
-            # A block with no content has nothing for the teacher to review.
-            if block.get("content", "").strip()
-        ]
-
     return [
         RecognisedRegion(
-            text=line["text"],
-            box=box(line["box"]),
-            confidence=float(line["confidence"]),
+            text=block["content"],
+            box=[[float(x) * scale_x, float(y) * scale_y] for x, y in block["box"]],
+            label=block.get("label"),
         )
-        for line in page.get("lines", [])
+        for block in page.get("blocks", [])
+        # A block with no content has nothing for the teacher to review.
+        if block.get("content", "").strip()
     ]
