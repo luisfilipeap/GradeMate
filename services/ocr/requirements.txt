@@ -1,0 +1,7 @@
+# PaddlePaddle itself is installed in the Dockerfile from the PaddlePaddle index,
+# because the CUDA build is not published on PyPI.
+# The doc-parser extra brings paddlex[ocr], which PaddleOCR-VL needs.
+paddleocr[doc-parser]>=3.7,<4
+fastapi>=0.111
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9

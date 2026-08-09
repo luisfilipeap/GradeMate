@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Environment
+.env
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local data
+storage/
+*.log
+
+# Real exams used while developing. They contain students' personal data and
+# must never be committed.
+data-test/

@@ -1,0 +1,68 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: grademate-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: grademate
+      POSTGRES_PASSWORD: grademate
+      POSTGRES_DB: grademate
+    ports:
+      - "5432:5432"
+    volumes:
+      - grademate_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grademate -d grademate"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Text recognition for the scanned exams, backed by PaddleOCR.
+  ocr:
+    build: ./services/ocr
+    container_name: grademate-ocr
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      OCR_LANG: pt
+      OCR_DEVICE: gpu:0
+    volumes:
+      - grademate_ocr_models:/models
+    # PaddlePaddle needs more shared memory than Docker's 64 MB default.
+    shm_size: 2gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Browser-based database client, for development only.
+  adminer:
+    image: adminer:5
+    container_name: grademate-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DEFAULT_DRIVER: pgsql
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  grademate_pgdata:
+  # Holds the uploaded exam PDFs. The backend container mounts it at
+  # /data/storage (STORAGE_ROOT); the database only stores paths relative to it.
+  grademate_storage:
+  # PaddleOCR model weights, downloaded on the first request.
+  grademate_ocr_models:
