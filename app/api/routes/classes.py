@@ -9,6 +9,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import ClassDep, SessionDep
 from app.models import Assessment, ClassGroup, Student
 from app.schemas import ClassCreate, ClassRead, ClassUpdate
+from app.services.cleanup import (
+    collect_question_paper_files,
+    collect_submission_files,
+    delete_files,
+)
 
 router = APIRouter(prefix="/classes", tags=["classes"])
 
@@ -73,6 +78,10 @@ def update_class(class_group: ClassDep, payload: ClassUpdate, session: SessionDe
 
 @router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_class(class_group: ClassDep, session: SessionDep) -> None:
-    """Delete a class along with its students and assessments."""
+    """Delete a class, its students and assessments, and every stored exam file."""
+    stored_files = collect_submission_files(
+        session, class_id=class_group.id
+    ) + collect_question_paper_files(session, class_id=class_group.id)
     session.delete(class_group)
     session.commit()
+    delete_files(stored_files)

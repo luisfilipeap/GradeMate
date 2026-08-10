@@ -7,7 +7,16 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +24,7 @@ from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.class_group import ClassGroup
+    from app.models.question import Question
     from app.models.submission import Submission
 
 
@@ -51,6 +61,16 @@ class Assessment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         server_default="100",
     )
 
+    # The blank question paper, if uploaded. There is exactly one per
+    # assessment (unlike submissions, which are one per student), so it is
+    # kept as columns here rather than as a separate one-row-per-assessment
+    # table. NULL means no paper has been uploaded yet.
+    question_paper_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    question_paper_original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    question_paper_file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_paper_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_paper_checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     class_group: Mapped[ClassGroup] = relationship(back_populates="assessments")
     submissions: Mapped[list[Submission]] = relationship(
         back_populates="assessment",
@@ -60,6 +80,12 @@ class Assessment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         # Both composite foreign keys write submissions.class_id; the database
         # constraints guarantee the two writers always agree on its value.
         overlaps="submissions,assessment,student",
+    )
+    questions: Mapped[list[Question]] = relationship(
+        back_populates="assessment",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="Question.position",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

@@ -5,3 +5,9 @@ paddleocr[doc-parser]>=3.7,<4
 fastapi>=0.111
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
+# Used to check the page count and pixel dimensions of an upload before it
+# reaches the engine. paddleocr's own dependencies likely already pull these
+# in transitively, but the size guard depends on them directly, so they are
+# declared explicitly rather than relied upon by accident.
+pypdf>=4.2
+pillow>=10.3

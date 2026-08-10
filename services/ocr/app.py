@@ -29,6 +29,21 @@ OCR_DEVICE = os.getenv("OCR_DEVICE", "gpu:0")
 
 ACCEPTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
 
+# The engine holds a single GPU. A page costs roughly 15s of GPU time, so an
+# unbounded number of concurrent requests would either OOM the card or make
+# every caller wait an unpredictable amount of time. Callers instead queue for
+# a slot, and are told plainly when the queue itself is full rather than
+# blocking forever or failing with something unrelated to the real cause.
+MAX_CONCURRENT_INFERENCES = int(os.getenv("OCR_MAX_CONCURRENT_INFERENCES", "1"))
+QUEUE_TIMEOUT_SECONDS = float(os.getenv("OCR_QUEUE_TIMEOUT_SECONDS", "60"))
+_inference_slots = threading.Semaphore(MAX_CONCURRENT_INFERENCES)
+
+# A single page costs about 4 GB of GPU memory; these ceilings exist because
+# this service is published on its own port and can be called directly,
+# bypassing whatever limits the backend enforces on its own uploads.
+MAX_PAGES = int(os.getenv("OCR_MAX_PAGES", "50"))
+MAX_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", str(40_000_000)))  # ~40 MP
+
 _engine: Any = None
 _engine_lock = threading.Lock()
 
@@ -124,6 +139,16 @@ def run_ocr(
     with tempfile.NamedTemporaryFile(suffix=suffix) as scratch:
         scratch.write(file.file.read())
         scratch.flush()
+        _enforce_size_limits(Path(scratch.name), suffix)
+
+        if not _inference_slots.acquire(timeout=QUEUE_TIMEOUT_SECONDS):
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    f"The OCR engine is busy with other requests and no GPU slot freed up "
+                    f"within {QUEUE_TIMEOUT_SECONDS:.0f}s. Retry shortly."
+                ),
+            )
         try:
             results = list(get_engine().predict(scratch.name))
         except Exception as error:  # pragma: no cover - depends on the model runtime
@@ -131,6 +156,8 @@ def run_ocr(
             raise HTTPException(
                 status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"OCR failed: {error}"
             ) from error
+        finally:
+            _inference_slots.release()
 
     pages = [_to_page(index, result) for index, result in enumerate(results, 1)]
     return OcrResponse(
@@ -140,6 +167,53 @@ def run_ocr(
         pages=pages,
         text="\n\n".join(page.text for page in pages),
     )
+
+
+def _enforce_size_limits(path: Path, suffix: str) -> None:
+    """Refuse a document beyond the page or pixel ceiling.
+
+    Runs after the file is already on disk (it has to be, for PaddleOCR to
+    read it), but before it reaches the engine, so an oversized document costs
+    a stat/decode instead of a GPU slot.
+    """
+    if suffix == ".pdf":
+        from pypdf import PdfReader
+        from pypdf.errors import PdfReadError
+
+        try:
+            page_count = len(PdfReader(str(path)).pages)
+        except (PdfReadError, ValueError, OSError) as error:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"The PDF could not be read to check its page count: {error}",
+            ) from error
+        if page_count > MAX_PAGES:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"The PDF has {page_count} pages; at most {MAX_PAGES} are accepted.",
+            )
+        return
+
+    from PIL import Image
+    from PIL import UnidentifiedImageError as PillowUnidentifiedImageError
+
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+    except (PillowUnidentifiedImageError, OSError) as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"The image could not be read to check its size: {error}",
+        ) from error
+
+    if width * height > MAX_IMAGE_PIXELS:
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"The image is {width}x{height} ({width * height} pixels); "
+                f"at most {MAX_IMAGE_PIXELS} pixels are accepted."
+            ),
+        )
 
 
 def _to_page(number: int, result: Any) -> Page:

@@ -14,11 +14,21 @@ from pathlib import Path, PurePosixPath
 from app.core.config import get_settings
 
 SUBMISSIONS_DIR = "submissions"
+ASSESSMENTS_DIR = "assessments"
 
 
 def submission_file_path(assessment_id: uuid.UUID, student_id: uuid.UUID) -> str:
     """Return the canonical relative path of a student's submission PDF."""
     return str(PurePosixPath(SUBMISSIONS_DIR, str(assessment_id), f"{student_id}.pdf"))
+
+
+def question_paper_path(assessment_id: uuid.UUID) -> str:
+    """Return the canonical relative path of an assessment's question paper PDF.
+
+    Unlike submissions, there is exactly one per assessment, so the id alone
+    determines the path.
+    """
+    return str(PurePosixPath(ASSESSMENTS_DIR, str(assessment_id), "question-paper.pdf"))
 
 
 def submission_page_image_path(
@@ -52,22 +62,54 @@ def ensure_parent_dir(relative_path: str) -> Path:
     return absolute
 
 
-def write(relative_path: str, content: bytes) -> Path:
-    """Store ``content`` at ``relative_path``, replacing whatever was there.
+def stage(relative_path: str, content: bytes) -> Path:
+    """Write ``content`` to a temporary file, not yet visible at ``relative_path``.
 
-    The bytes land in a temporary file first and are then moved into place, so a
-    failed upload can never leave a half-written PDF behind.
+    Used when a caller must not publish a file until something else durable —
+    typically a database commit — has actually happened: write here first,
+    then ``publish`` once that fact holds, or ``discard`` if it does not.
+
+    The temporary file lives next to its eventual final path, on the same
+    filesystem, so ``publish`` can move it into place atomically.
     """
-    absolute = ensure_parent_dir(relative_path)
-    handle, scratch = tempfile.mkstemp(dir=absolute.parent, suffix=".part")
+    absolute_target = ensure_parent_dir(relative_path)
+    handle, scratch = tempfile.mkstemp(dir=absolute_target.parent, suffix=".part")
     try:
         with os.fdopen(handle, "wb") as file:
             file.write(content)
-        os.replace(scratch, absolute)
     except BaseException:
         Path(scratch).unlink(missing_ok=True)
         raise
-    return absolute
+    return Path(scratch)
+
+
+def publish(staged_path: Path, relative_path: str) -> Path:
+    """Atomically move a file staged by ``stage`` into its final location.
+
+    This is the single instant at which the file becomes visible under
+    ``relative_path``; nothing reading the storage volume can observe a
+    partially written file at that path.
+    """
+    absolute_target = resolve(relative_path)
+    os.replace(staged_path, absolute_target)
+    return absolute_target
+
+
+def discard(staged_path: Path) -> None:
+    """Remove a file staged by ``stage`` that will not be published."""
+    Path(staged_path).unlink(missing_ok=True)
+
+
+def write(relative_path: str, content: bytes) -> Path:
+    """Store ``content`` at ``relative_path`` immediately, replacing whatever was there.
+
+    A one-shot convenience over ``stage`` + ``publish``, for callers with
+    nothing else to make durable first (tests, fixtures, one-off scripts).
+    Request handlers that write a file the database is about to reference
+    should use ``stage``/``publish`` directly, so the file is only published
+    once the transaction referencing it has actually committed.
+    """
+    return publish(stage(relative_path, content), relative_path)
 
 
 def delete(relative_path: str) -> None:

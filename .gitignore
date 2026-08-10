@@ -22,3 +22,12 @@ storage/
 # Real exams used while developing. They contain students' personal data and
 # must never be committed.
 data-test/
+
+# Contributor-specific agent configuration remains local. The shared verifier
+# contract is explicitly versioned so reviews can record `config_commit`.
+.claude/
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+.codex/agents/*
+!.codex/agents/verifier.toml

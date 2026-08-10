@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
+import time
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse
@@ -15,6 +18,8 @@ from app.core.config import get_settings
 from app.models import OcrLine, Submission, SubmissionPage
 from app.schemas import OcrLineRead, OcrLineUpdate, ReviewRead
 from app.services.ocr_client import OcrServiceError, recognise_image
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["review"])
 
@@ -46,17 +51,47 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
             detail="The file is registered but missing from the storage volume.",
         )
 
-    rendered = pdf.render_pages(absolute.read_bytes(), settings.page_render_dpi)
+    try:
+        rendered = pdf.render_pages(absolute.read_bytes(), settings.page_render_dpi)
+    except pdf.PdfRenderError as error:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"The stored PDF could not be rendered: {error}",
+        ) from error
     if not rendered:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The PDF has no pages to read."
         )
 
+    oversized = [page for page in rendered if page.width * page.height > settings.max_page_pixels]
+    if oversized:
+        numbers = ", ".join(str(page.number) for page in oversized)
+        raise HTTPException(
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=(
+                f"Page(s) {numbers} render larger than the {settings.max_page_pixels} pixel "
+                "limit. Lowering PAGE_RENDER_DPI would let a page like this through."
+            ),
+        )
+
+    # A ceiling on the whole run, distinct from the per-page HTTP timeout
+    # already enforced inside `recognise_image`: a document with many pages,
+    # each individually fast enough, could otherwise run unbounded.
+    deadline = time.monotonic() + settings.ocr_job_timeout_seconds
+    recognised = []
     try:
-        recognised = [
-            (page, recognise_image(page.png, f"page-{page.number}.png", page.width, page.height))
-            for page in rendered
-        ]
+        for page in rendered:
+            if time.monotonic() > deadline:
+                raise HTTPException(
+                    status.HTTP_504_GATEWAY_TIMEOUT,
+                    detail=(
+                        f"The OCR run exceeded its {settings.ocr_job_timeout_seconds:.0f}s "
+                        f"job timeout after reading {len(recognised)} of {len(rendered)} "
+                        "page(s). The previous reading, if any, was left untouched."
+                    ),
+                )
+            regions = recognise_image(page.png, f"page-{page.number}.png", page.width, page.height)
+            recognised.append((page, regions))
     except OcrServiceError as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 
@@ -65,11 +100,15 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
         session.delete(page)
     session.flush()
 
+    # Every page image is staged now but only published below, after the
+    # commit succeeds — so a failure partway through never leaves images from
+    # this run sitting next to rows from the previous one.
+    staged_images: list[tuple[str, Path]] = []
     for rendered_page, regions in recognised:
         image_path = storage.submission_page_image_path(
             submission.assessment_id, submission.student_id, rendered_page.number
         )
-        storage.write(image_path, rendered_page.png)
+        staged_images.append((image_path, storage.stage(image_path, rendered_page.png)))
 
         page = SubmissionPage(
             submission_id=submission.id,
@@ -84,8 +123,35 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
         ]
         session.add(page)
 
-    session.commit()
+    try:
+        session.commit()
+    except BaseException:
+        for _, staged_path in staged_images:
+            storage.discard(staged_path)
+        raise
     session.refresh(submission)
+
+    publish_failures = []
+    for image_path, staged_path in staged_images:
+        try:
+            storage.publish(staged_path, image_path)
+        except OSError:
+            publish_failures.append(image_path)
+    if publish_failures:
+        # The database already committed and is the source of truth; this
+        # inconsistency (rows referencing images that failed to land) must
+        # stay visible rather than being silently swallowed.
+        logger.error(
+            "Submission %s committed its OCR reading but %d page image(s) failed to publish: %s",
+            submission.id,
+            len(publish_failures),
+            publish_failures,
+        )
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The OCR reading was recorded but some page images could not be stored.",
+        )
+
     return _to_review(submission)
 
 

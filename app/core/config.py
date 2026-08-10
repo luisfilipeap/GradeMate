@@ -29,9 +29,23 @@ class Settings(BaseSettings):
     # Largest exam PDF the teacher is allowed to upload.
     max_upload_mb: int = 25
 
+    # Largest number of pages a single submission may have. Each page costs
+    # about 15s of GPU time and a render buffer, so this bounds both.
+    max_submission_pages: int = 60
+
+    # Largest rasterised page, in pixels (width * height), sent to the OCR
+    # service. Guards against a PDF whose page size or DPI would otherwise
+    # blow up the render and the upload to the OCR service.
+    max_page_pixels: int = 40_000_000  # ~40 MP, e.g. a 6350x6300 page
+
     # The OCR service from docker-compose.
     ocr_service_url: str = "http://localhost:8001"
+    # Per-page HTTP timeout for a single call to the OCR service.
     ocr_timeout_seconds: float = 180.0
+    # Ceiling for a whole OCR run (every page of one submission), distinct
+    # from the per-page timeout above: a document with many pages, each
+    # individually fast enough, could otherwise run unbounded.
+    ocr_job_timeout_seconds: float = 900.0
 
     # Resolution used to rasterise the PDF pages. The same image is sent to the
     # OCR service and shown in the review screen, so the boxes always match.

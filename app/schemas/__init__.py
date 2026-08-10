@@ -2,6 +2,7 @@
 
 from app.schemas.assessment import AssessmentCreate, AssessmentRead, AssessmentUpdate
 from app.schemas.class_group import ClassCreate, ClassRead, ClassUpdate
+from app.schemas.question import QuestionCreate, QuestionRead, QuestionUpdate
 from app.schemas.review import OcrLineRead, OcrLineUpdate, ReviewRead, SubmissionPageRead
 from app.schemas.student import StudentCreate, StudentRead, StudentUpdate
 from app.schemas.submission import SubmissionRead
@@ -18,6 +19,9 @@ __all__ = [
     "ClassCreate",
     "ClassRead",
     "ClassUpdate",
+    "QuestionCreate",
+    "QuestionRead",
+    "QuestionUpdate",
     "StudentCreate",
     "StudentRead",
     "StudentUpdate",

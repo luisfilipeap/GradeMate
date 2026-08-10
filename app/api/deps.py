@@ -9,7 +9,7 @@ from fastapi import Depends, HTTPException, Path, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session
-from app.models import Assessment, ClassGroup, Student
+from app.models import Assessment, ClassGroup, Question, Student
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -40,6 +40,15 @@ def get_assessment_or_404(
     return assessment
 
 
+def get_question_or_404(question_id: Annotated[uuid.UUID, Path()], session: SessionDep) -> Question:
+    """Load a question by id or raise 404."""
+    question = session.get(Question, question_id)
+    if question is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
+    return question
+
+
 ClassDep = Annotated[ClassGroup, Depends(get_class_or_404)]
 StudentDep = Annotated[Student, Depends(get_student_or_404)]
 AssessmentDep = Annotated[Assessment, Depends(get_assessment_or_404)]
+QuestionDep = Annotated[Question, Depends(get_question_or_404)]

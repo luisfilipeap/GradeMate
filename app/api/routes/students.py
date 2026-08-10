@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.api.deps import ClassDep, SessionDep, StudentDep
 from app.models import Student
 from app.schemas import StudentCreate, StudentRead, StudentUpdate
+from app.services.cleanup import collect_submission_files, delete_files
 
 router = APIRouter(tags=["students"])
 
@@ -48,6 +49,8 @@ def update_student(student: StudentDep, payload: StudentUpdate, session: Session
 
 @router.delete("/students/{student_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_student(student: StudentDep, session: SessionDep) -> None:
-    """Remove a student from the class."""
+    """Remove a student from the class, and the files of every exam they handed in."""
+    stored_files = collect_submission_files(session, student_id=student.id)
     session.delete(student)
     session.commit()
+    delete_files(stored_files)

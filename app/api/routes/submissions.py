@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from typing import Annotated
 
@@ -12,10 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AssessmentDep, SessionDep, StudentDep
+from app.api.pdf_errors import as_http_exception
 from app.core import pdf, storage
 from app.core.config import get_settings
 from app.models import Submission
 from app.schemas import SubmissionRead
+from app.services.cleanup import collect_submission_files, delete_files
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["submissions"])
 
@@ -50,10 +55,13 @@ def upload_submission(
         )
 
     content = file.file.read()
-    _validate(content)
+    page_count = _validate(content)
 
     relative_path = storage.submission_file_path(assessment.id, student.id)
-    storage.write(relative_path, content)
+    # Written to a staging location now, published at `relative_path` only
+    # once the commit below actually happens: the volume must never hold a
+    # file the database does not yet know about.
+    staged_file = storage.stage(relative_path, content)
 
     submission = session.scalar(
         select(Submission).where(
@@ -61,6 +69,8 @@ def upload_submission(
             Submission.student_id == student.id,
         )
     )
+
+    stale_image_paths: list[str] = []
     if submission is None:
         submission = Submission(
             class_id=assessment.class_id,
@@ -69,14 +79,46 @@ def upload_submission(
             file_path=relative_path,
         )
         session.add(submission)
+    else:
+        # A new PDF invalidates everything read from the previous one: the
+        # rendered pages and their OCR lines no longer describe this document.
+        stale_image_paths = _stored_page_image_paths(submission)
+        for page in submission.pages:
+            session.delete(page)
 
     submission.original_filename = file.filename
     submission.file_size_bytes = len(content)
-    submission.page_count = pdf.count_pages(content)
+    submission.page_count = page_count
     submission.checksum_sha256 = hashlib.sha256(content).hexdigest()
 
-    session.commit()
+    try:
+        session.commit()
+    except BaseException:
+        storage.discard(staged_file)
+        raise
     session.refresh(submission)
+
+    try:
+        storage.publish(staged_file, relative_path)
+    except OSError:
+        # The database already committed and is the source of truth; the
+        # inconsistency this leaves (a row pointing at a file that failed to
+        # land) must stay visible rather than being silently swallowed.
+        logger.exception(
+            "Submission %s committed but its file could not be published to %r",
+            submission.id,
+            relative_path,
+        )
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="The submission was recorded but its file could not be stored. Try again.",
+        ) from None
+
+    # Only remove the stale images once the replacement is durable, so a
+    # failed commit leaves the previous reading's files intact.
+    for path in stale_image_paths:
+        storage.delete(path)
+
     return submission
 
 
@@ -102,12 +144,10 @@ def download_submission(submission_id: uuid.UUID, session: SessionDep) -> FileRe
 def delete_submission(submission_id: uuid.UUID, session: SessionDep) -> None:
     """Delete a submission and the PDF it points at."""
     submission = _get_or_404(session, submission_id)
-    # The rendered page images go away with the PDF they were made from.
-    stored_files = [submission.file_path, *(page.image_path for page in submission.pages)]
+    stored_files = collect_submission_files(session, submission_id=submission.id)
     session.delete(submission)
     session.commit()
-    for path in stored_files:
-        storage.delete(path)
+    delete_files(stored_files)
 
 
 def _get_or_404(session: Session, submission_id: uuid.UUID) -> Submission:
@@ -117,19 +157,29 @@ def _get_or_404(session: Session, submission_id: uuid.UUID) -> Submission:
     return submission
 
 
-def _validate(content: bytes) -> None:
-    """Reject empty files, oversized files and anything that is not a PDF."""
-    if not content:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The uploaded file is empty.")
+def _stored_page_image_paths(submission: Submission) -> list[str]:
+    """Relative paths of every rendered page image belonging to a submission."""
+    return [page.image_path for page in submission.pages]
 
-    limit = get_settings().max_upload_mb * 1024 * 1024
-    if len(content) > limit:
+
+def _validate(content: bytes) -> int:
+    """Reject empty, oversized, non-PDF, unparseable or too-long files.
+
+    Returns the page count, so callers that already need it (storing it on the
+    submission) do not parse the document a second time.
+    """
+    settings = get_settings()
+    try:
+        page_count = pdf.validate_pdf_upload(content, settings.max_upload_mb * 1024 * 1024)
+    except pdf.PdfValidationError as error:
+        raise as_http_exception(error) from error
+
+    if page_count > settings.max_submission_pages:
         raise HTTPException(
             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"The file is larger than the {get_settings().max_upload_mb} MB limit.",
+            detail=(
+                f"The PDF has {page_count} pages; at most "
+                f"{settings.max_submission_pages} are accepted."
+            ),
         )
-
-    if not pdf.looks_like_pdf(content):
-        raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Only PDF files are accepted."
-        )
+    return page_count

@@ -21,6 +21,7 @@ CONSTRAINT_MESSAGES = {
     ),
     "uq_submissions_file_path": "Another submission already points at this file.",
     "ck_assessments_max_score_positive": "The maximum score must be greater than zero.",
+    "uq_questions_assessment_number": ("This assessment already has a question with this number."),
 }
 
 DEFAULT_MESSAGE = "The operation conflicts with data already stored."

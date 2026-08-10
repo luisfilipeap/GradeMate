@@ -47,3 +47,9 @@ class AssessmentRead(AssessmentBase):
     created_at: datetime
     updated_at: datetime
     submission_count: int = 0
+    question_count: int = 0
+    # Metadata about the uploaded question paper, never the stored path: read
+    # the file itself through the download endpoint. `None` means no paper
+    # has been uploaded yet.
+    question_paper_original_filename: str | None = None
+    question_paper_page_count: int | None = None
