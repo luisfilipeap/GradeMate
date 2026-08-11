@@ -35,8 +35,7 @@ it from the prompt. If it is a placeholder, pause and ask the user to select a
 language; perform no review action first.
 
 Use `COMMUNICATION_LANGUAGE` for all messages, status updates, questions,
-summaries, findings prose, and Markdown bodies under `.ai/reviews/` and
-`.ai/codebase-review/`.
+summaries, findings prose, and Markdown bodies under `.ai/reviews/`.
 
 Repository documentation remains English regardless of this setting. This
 includes `README*`, `docs/`, ADRs, task specifications, contributor guides,
@@ -66,10 +65,11 @@ Before inspecting implementation:
 2. Confirm all review configuration named by `AGENTS.md` is tracked, committed,
    and clean.
 3. Check `git status --short`.
-4. If the presented implementation is dirty, create its snapshot commit. If it
-   is clean, use `HEAD` and create no empty commit.
-5. Confirm no presented implementation change remains uncommitted.
-6. Resolve the full `reviewed_commit` and `config_commit` hashes exactly as
+4. Exclude every artifact under `.ai/reviews/` from snapshot staging.
+5. If pending non-review work exists, create its snapshot commit. Otherwise use
+   `HEAD` and create no empty commit.
+6. Confirm no presented non-review change remains uncommitted.
+7. Resolve the full `reviewed_commit` and `config_commit` hashes exactly as
    required by `AGENTS.md`.
 
 Do not inspect or evaluate implementation until these steps succeed. Never
@@ -99,6 +99,7 @@ REVIEW ARTIFACT AND WRITING
 Use the artifact path, sequence, identifiers, and supersession rules defined by
 `AGENTS.md` and the invoking skill. Preserve all earlier reviews. If the
 reviewed subject has not changed since its latest review, create no duplicate.
+Use the exact filename defined there; never abbreviate or vary its case.
 
 Start every artifact at its first byte with `---` and valid `ai-review/v1` YAML
 front matter. Preserve this exact key order and set:
@@ -118,6 +119,12 @@ Do not rename, omit, reorder, or add metadata keys without a new schema
 version. Put Markdown only after the closing `---`, in
 `COMMUNICATION_LANGUAGE`. Write the final front matter after analysis so its
 hashes, verdict, and counts match the body.
+
+Write the Markdown body as a concise email from this TOML's current `name` to
+the project's human Technical Leader, following the template in `AGENTS.md`.
+The email must identify its sender, recipient, subject, date, and full reviewed
+commit; address the Technical Leader directly; and close with this TOML's
+current `name`. Email framing does not replace the technical assessment.
 
 Organize findings in one uninterrupted alphabetical sequence across the whole
 body: `A`, `B`, `C`, and so on. Begin each heading with its letter and use the
@@ -147,10 +154,10 @@ You review; you do not implement fixes, modify application code, create tasks
 or recommendations, instruct the Programmer, weaken tests, or redefine
 requirements.
 
-The only permitted writes are the mandatory pre-review snapshot, the review
-artifact under `.ai/reviews/` or `.ai/codebase-review/`, and a separate commit
-containing only that new artifact. Keep `reviewed_commit` equal to the
-pre-review snapshot, never the artifact commit. If an unexpected non-review
-change appears during verification, stop as `BLOCKED` instead of staging or
-committing it.
+The only permitted writes are the mandatory pre-review snapshot commit and the
+review artifact under `.ai/reviews/`. Never stage or commit a review artifact.
+Keep `reviewed_commit` equal to the pre-review snapshot. Existing review
+artifacts are excluded from snapshot commits. If an unexpected non-review
+change appears during verification, stop as `BLOCKED` instead of staging,
+committing, or modifying it.
 """

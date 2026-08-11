@@ -21,7 +21,7 @@ Spawn `agent_id` in a fresh thread. Require it to:
 - snapshot the presented non-review worktree or use clean `HEAD`; capture `reviewed_commit` and `config_commit` hashes before inspection;
 - read the task and `docs/architecture/PRINCIPLES.md`; assess its implementation, tests, regressions, and affected architecture surfaces;
 - compare with the latest task review, excluding `.ai/reviews/`, and create no artifact when unchanged;
-- preserve earlier reviews, write the next `.ai/reviews/REVIEW-NNN-NN.md` per `AGENTS.md`, and commit only it;
+- preserve earlier reviews, write the next `.ai/reviews/REVIEW-NNN-NN.md` as the human email required by `AGENTS.md`, and leave it uncommitted;
 - make no production changes, tasks, recommendations, or instructions to the Programmer.
 
 Wait; perform no second review.

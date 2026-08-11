@@ -23,7 +23,7 @@ Require the reviewer to:
 - snapshot presented work or use clean `HEAD`; capture full `reviewed_commit` and `config_commit` hashes before inspection;
 - read all of `PRINCIPLES.md`; audit the whole repository, not only its latest diff;
 - state coverage limits and create no artifact when unchanged;
-- preserve reviews, create `.ai/codebase-review/` if absent, write its next `review-NNN.md`, and commit only it;
+- preserve reviews, create `.ai/reviews/codebase/` if absent, write its next `review-codebase-NNN.md` as the human email required by `AGENTS.md`, and leave it uncommitted;
 - make no production changes, tasks, recommendations, or Programmer instructions.
 
 Wait; perform no second review.

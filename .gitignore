@@ -23,6 +23,9 @@ storage/
 # must never be committed.
 data-test/
 
+# Review artifacts are local communication records and must never be committed.
+.ai/reviews/
+
 # Contributor-specific agent configuration remains local. The shared verifier
 # contract is explicitly versioned so reviews can record `config_commit`.
 .claude/
