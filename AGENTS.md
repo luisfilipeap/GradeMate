@@ -5,8 +5,10 @@ independent code review. The invoking repository skill defines the review
 scope; the verifier defines the reviewer's communication, evidence, writing,
 and independence rules.
 
-For a completed task implementation review, invoke the repository skill as
-`$review-task TASK-NNN <agent_id>`. The supplied `agent_id` must equal the
+For a completed issue implementation review, invoke the repository skill as
+`$review-task <issue-number> <agent_id>`. Work items in this project are
+GitHub issues, not local `TASK-NNN` files — there is no `.ai/tasks/`. The
+supplied `agent_id` must equal the
 current `name` in `.codex/agents/verifier.toml` and resolve to exactly one
 custom agent; otherwise no review may run. During that workflow, all review
 rules below apply equally to the selected reviewer. The parent does not perform
@@ -15,7 +17,7 @@ another technical review.
 For a whole-codebase baseline, regression, or architectural compliance audit,
 invoke `$codebase-review <agent_id>`. The argument must resolve by an exact
 `name` match to one project custom agent whose filename-stem role is allowed to
-review by `PERMISSIONS.yml`. Do not use it for a single task or patch.
+review by `PERMISSIONS.yml`. Do not use it for a single issue or patch.
 
 The selected codebase reviewer TOML must explicitly define `model` and
 `model_reasoning_effort`. Spawn that exact custom agent in a fresh thread with
@@ -54,8 +56,8 @@ Markdown body.
 
 `$codebase-review` owns whole-repository coverage and must require the verifier
 to read all of `docs/architecture/PRINCIPLES.md` before inspecting
-implementation. `$review-task` owns one completed task review and limits
-architectural assessment to the surfaces affected by that task.
+implementation. `$review-task` owns one completed issue review and limits
+architectural assessment to the surfaces affected by that issue.
 
 The verifier does not implement fixes, create recommendations, or instruct the
 Programmer. Findings state evidence and impact without prescribing a solution.
@@ -80,21 +82,14 @@ paths:
 
 If either commit hash cannot be resolved, the review must stop as `BLOCKED`.
 
-Task-review findings must be persisted under:
+Issue-review findings must be persisted under:
 
 `.ai/reviews/`
 
-Task review filenames must follow this exact format:
 
-`.ai/reviews/REVIEW-NNN-NN.md`
-
-`NNN` is the three-digit numeric part of the task identifier, and `NN` is the
-two-digit review sequence for that task. For example, the verifier's first
-pronouncement on `TASK-023` is `.ai/reviews/REVIEW-023-01.md`.
-
-The review sequence records how many times the verifier has pronounced on a
-task after the programmer presented a changed implementation. Start at `01`.
-After the implementation changes and the verifier reviews the task again,
+The review sequence records how many times the verifier has pronounced on an
+issue after the programmer presented a changed implementation. Start at `01`.
+After the implementation changes and the verifier reviews the issue again,
 increment the sequence to `02`, then `03`, and so on. Never overwrite or rename
 an earlier review to reuse its sequence number. If the implementation has not
 changed since the latest `reviewed_commit`, do not create another review file;
@@ -116,17 +111,17 @@ Pull-request review results must be kept below:
 
 Use the pull request's actual numeric identifier in both positions. For example,
 the first review of PR 23 is `.ai/reviews/PR-23/review-PR23-001.md`. `NNN` is the
-three-digit review sequence for that pull request. Do not store codebase, task,
+three-digit review sequence for that pull request. Do not store codebase, issue,
 or unrelated review artifacts in a pull-request directory.
 
 Every review must begin at the first byte of the file with valid YAML front
-matter conforming to `ai-review/v1`. A task review uses this exact structure:
+matter conforming to `ai-review/v1`. An issue review uses this exact structure:
 
 ```yaml
 ---
 schema: ai-review/v1
-id: REVIEW-TASK-023-001
-task_id: TASK-023
+id: REVIEW-023-001
+task_id: "023"
 iteration: 1
 actor:
   role: verifier
@@ -149,18 +144,21 @@ supersedes: null
 Metadata rules:
 
 - `schema` must be exactly `ai-review/v1`.
-- For task reviews, `id` must be
+- For issue reviews, `id` must be
   `REVIEW-<task_id>-<iteration padded to three digits>` and `task_id` must
-  exactly match the reviewed task filename identifier.
+  exactly match the reviewed GitHub issue's number, zero-padded to at least
+  three digits and quoted as a string — this field is still named `task_id`
+  for schema-compatibility reasons, but it identifies the reviewed issue,
+  never a local task file; this project has no `.ai/tasks/`.
 - For codebase reviews, `id` must be
   `REVIEW-CODEBASE-<iteration padded to three digits>` and `task_id` must be
   exactly `CODEBASE`.
 - For pull-request reviews, `id` must be
   `REVIEW-PR<pull-request-number>-<iteration padded to three digits>` and
   `task_id` must be exactly `PR-<pull-request-number>`.
-- `iteration` starts at `1`. It equals the integer represented by `NN` in a task
-  filename or by `NNN` in a codebase or pull-request review filename, and
-  increments after each changed subject snapshot is reviewed.
+- `iteration` starts at `1`. It equals the integer represented by `NN` in an
+  issue review filename or by `NNN` in a codebase or pull-request review
+  filename, and increments after each changed subject snapshot is reviewed.
 - `actor.role` is always `verifier`; `actor.agent` is the current custom-agent
   alias from `.codex/agents/verifier.toml`; `actor.runtime` is `codex`;
   `actor.model` is the effective model used for the review.
@@ -221,7 +219,7 @@ change metadata, finding counts, evidence requirements, or verdict semantics.
 Organize all documented findings in one alphabetical sequence across the whole
 review body: `A`, `B`, `C`, and so on. Do not restart the sequence in a new
 category. Each finding heading must begin with its letter, for example
-`### A — Missing cleanup`. Its `ID` must be `REVIEW-NNN-NN-A` for task reviews,
+`### A — Missing cleanup`. Its `ID` must be `REVIEW-NNN-NN-A` for issue reviews,
 `REVIEW-CODEBASE-NNN-A` for codebase reviews, or
 `REVIEW-PR<pull-request-number>-NNN-A` for pull-request reviews. Findings
 counts in the YAML front matter count these lettered items.
