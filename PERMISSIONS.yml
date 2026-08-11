@@ -1,0 +1,51 @@
+# Role -> capability policy for this project's AI agents.
+#
+# This is a whole-project policy, not a Claude Code artifact -- it lives at
+# the repository root, beside AGENTS.md, and applies identically regardless
+# of which runtime implements a given role. Today that means a role's agent
+# definition may be a Claude Code subagent (`.claude/agents/<role>.md`) or a
+# Codex agent (`.codex/agents/<role>.toml`); a role could in principle move
+# from one runtime to the other, or a new runtime could be added, without
+# this file changing at all, because it never mentions a runtime.
+#
+# This file is an allowlist. A skill or action listed below is a hard gate:
+# only the roles named for it may perform it, and every procedure that gates
+# on this file must refuse -- not warn, not fall back -- when the caller's
+# role is not listed. A skill or action NOT listed here has no gate from
+# this file yet: absence means "not yet governed", not "denied". Extend
+# this file as new gates are needed (who may implement code, who may
+# commit, who may accept a pull request, ...) rather than hardcoding a role
+# check inside a skill or agent definition -- the point of this file is
+# that every such rule lives in one place, not scattered across
+# Claude-specific and Codex-specific definitions that can silently drift
+# from each other.
+#
+# Checked by role, never by alias, and never by runtime. A role is the
+# filename stem of its agent definition (`architect`, `programmer`,
+# `verifier`, ...) -- the same word regardless of whether that definition is
+# a `.claude/agents/<role>.md` file or a `.codex/agents/<role>.toml` one.
+# The alias (Claude's front-matter `name:`, Codex's `name = "..."`) is
+# user-renamable at any time and must never appear in this file. Resolving
+# a caller's alias back to its role means checking both agent directories,
+# not just one -- a check that only looked under `.claude/agents/` would
+# silently fail to find a Codex-implemented role, and vice versa.
+
+schema: mydevoffice/permissions/v1
+
+skills:
+  code:
+    allowed_roles:
+      - programmer
+  review:
+    allowed_roles:
+      - verifier
+  create-issue:
+    allowed_roles:
+      - architect
+
+# Non-skill capabilities this file will grow to cover: who may write
+# implementation code, who may commit, who may accept a pull request, and
+# so on -- for any runtime. Left empty on purpose -- add an entry here, with
+# the same allowed_roles shape, only when a real gate is being built for it.
+# Do not pre-populate this with guesses.
+capabilities: {}

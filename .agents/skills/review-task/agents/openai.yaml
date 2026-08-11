@@ -1,7 +1,7 @@
 interface:
   display_name: "Review Task"
-  short_description: "Delegate a task review to a named agent"
-  default_prompt: "Use $review-task TASK-001 reviewer to delegate an independent task review."
+  short_description: "Review a task with the configured verifier"
+  default_prompt: "Use $review-task with a TASK-NNN ID and the verifier's current alias."
 
 policy:
   allow_implicit_invocation: false

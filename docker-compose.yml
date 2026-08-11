@@ -45,8 +45,8 @@ services:
       retries: 5
       start_period: 30s
 
-  # Local LLM inference (Qwen3), backed by Ollama. Used by TASK-012 (question
-  # extraction) and TASK-013 (LaTeX repair) — nothing calls it yet.
+  # Local LLM inference (Qwen3), backed by Ollama. Used by TASK-011 (question
+  # extraction) and TASK-012 (LaTeX repair) — nothing calls it yet.
   #
   # Shares the card with `ocr` and neither service gives its memory back by
   # going idle, so on a single 12 GB GPU only one of the two can actually run

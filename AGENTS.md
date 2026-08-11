@@ -1,13 +1,29 @@
 ## Verification
 
 Use the custom verifier agent defined in `.codex/agents/verifier.toml` for
-independent code review.
+independent code review. The invoking repository skill defines the review
+scope; the verifier defines the reviewer's communication, evidence, writing,
+and independence rules.
 
 For a completed task implementation review, invoke the repository skill as
-`$review-task TASK-NNN <agent_id>`. The skill must resolve exactly one custom
-agent by its `name`; if it cannot, no review may run. During that workflow, all
-review rules below apply equally to the selected reviewer. The parent does not
-perform another technical review.
+`$review-task TASK-NNN <agent_id>`. The supplied `agent_id` must equal the
+current `name` in `.codex/agents/verifier.toml` and resolve to exactly one
+custom agent; otherwise no review may run. During that workflow, all review
+rules below apply equally to the selected reviewer. The parent does not perform
+another technical review.
+
+For a whole-codebase baseline, regression, or architectural compliance audit,
+invoke `$codebase-review <agent_id>`. The argument must resolve by an exact
+`name` match to one project custom agent whose filename-stem role is allowed to
+review by `PERMISSIONS.yml`. Do not use it for a single task or patch.
+
+The selected codebase reviewer TOML must explicitly define `model` and
+`model_reasoning_effort`. Spawn that exact custom agent in a fresh thread with
+no model or reasoning override. Its TOML values—not the parent CLI model,
+spawn defaults, or inference—must control the review. If the fields or exact
+custom-agent resolution are unavailable, the review must stop as `BLOCKED`.
+Before spawning, `$codebase-review` must successfully run its bundled
+`scripts/resolve_reviewer.py` with the supplied `agent_id` and use that result.
 
 The verifier's invocation alias is the value of the required `name` field in
 `.codex/agents/verifier.toml`. The user may replace that value with any preferred
@@ -24,29 +40,22 @@ that exact alias; do not assume a hard-coded agent name.
 
 The selected communication language applies to the verifier's chat messages,
 status updates, questions, summaries, and the Markdown body of review artifacts
-under `.ai/reviews/`. Machine-readable metadata keys and values defined by the
-`ai-review/v1` schema remain unchanged.
+under `.ai/reviews/` and `.ai/codebase-review/`. Machine-readable metadata keys
+and values defined by the `ai-review/v1` schema remain unchanged.
 
 The repository documentation language is a separate, invariant policy: all
 in-repository documentation must always be written in English, regardless of
 the selected communication language. This includes `README*`, `docs/`, ADRs,
 task specifications, contributor guides, code comments, docstrings, and
 configuration documentation. Preserve source-language text only when quoting
-existing material as evidence. Review artifacts under `.ai/reviews/` are
-communication records and therefore use the selected communication language in
-their Markdown body.
+existing material as evidence. Artifacts under `.ai/reviews/` and
+`.ai/codebase-review/` are communication records and therefore use the selected
+communication language in their Markdown body.
 
-The verifier must be used for:
-
-- baseline repository audits;
-- regression analysis;
-- architectural compliance review.
-
-The verifier must read:
-
-`docs/architecture/PRINCIPLES.md`
-
-before performing architectural review.
+`$codebase-review` owns whole-repository coverage and must require the verifier
+to read all of `docs/architecture/PRINCIPLES.md` before inspecting
+implementation. `$review-task` owns one completed task review and limits
+architectural assessment to the surfaces affected by that task.
 
 The verifier does not implement fixes, create recommendations, or instruct the
 Programmer. Findings state evidence and impact without prescribing a solution.
@@ -60,16 +69,17 @@ an empty commit. The verifier must not review uncommitted code.
 After the snapshot is committed, the verifier must resolve the full commit hash
 with `git rev-parse HEAD` and use that exact revision as the review baseline.
 
-The review configuration (`AGENTS.md`, `.agents/skills/review-task/SKILL.md`,
-`.codex/config.toml`, and the selected project agent's TOML) must also be
-tracked and committed. Resolve the full configuration commit with the actual
-selected-agent path:
+The review configuration (`AGENTS.md`, `PERMISSIONS.yml`, the actual invoking
+skill's `SKILL.md` and executed scripts, `.codex/config.toml`, and the selected
+project agent's TOML) must also be tracked, committed, and clean. Resolve the
+full configuration commit with the actual invoking-skill and selected-agent
+paths:
 
-`git log -1 --format=%H -- AGENTS.md .agents/skills/review-task/SKILL.md .codex/config.toml <selected-agent-toml>`
+`git log -1 --format=%H -- AGENTS.md PERMISSIONS.yml <invoking-skill-files> .codex/config.toml <selected-agent-toml>`
 
 If either commit hash cannot be resolved, the review must stop as `BLOCKED`.
 
-Verifier findings must be persisted under:
+Task-review findings must be persisted under:
 
 `.ai/reviews/`
 
@@ -89,8 +99,18 @@ an earlier review to reuse its sequence number. If the implementation has not
 changed since the latest `reviewed_commit`, do not create another review file;
 report that the latest review remains current.
 
-Every task review must begin at the first byte of the file with valid YAML front
-matter conforming to `ai-review/v1` and using this exact structure:
+Whole-codebase review results must be persisted using this exact format:
+
+`.ai/codebase-review/review-NNN.md`
+
+`NNN` is the three-digit codebase-review sequence. Start at `001`, create the
+directory if absent, preserve every earlier review, and increment only after the
+reviewed repository snapshot has changed. If it matches the latest codebase
+review's `reviewed_commit`, create no new file and report that the latest review
+remains current.
+
+Every review must begin at the first byte of the file with valid YAML front
+matter conforming to `ai-review/v1`. A task review uses this exact structure:
 
 ```yaml
 ---
@@ -119,10 +139,15 @@ supersedes: null
 Metadata rules:
 
 - `schema` must be exactly `ai-review/v1`.
-- `id` must be `REVIEW-<task_id>-<iteration padded to three digits>`.
-- `task_id` must exactly match the reviewed task filename identifier.
-- `iteration` starts at `1`, equals the integer represented by the filename's
-  `NN` segment, and increments after each changed implementation is reviewed.
+- For task reviews, `id` must be
+  `REVIEW-<task_id>-<iteration padded to three digits>` and `task_id` must
+  exactly match the reviewed task filename identifier.
+- For codebase reviews, `id` must be
+  `REVIEW-CODEBASE-<iteration padded to three digits>` and `task_id` must be
+  exactly `CODEBASE`.
+- `iteration` starts at `1`. It equals the integer represented by `NN` in a task
+  filename or by `NNN` in a codebase-review filename, and increments after each
+  changed subject snapshot is reviewed.
 - `actor.role` is always `verifier`; `actor.agent` is the current custom-agent
   alias from `.codex/agents/verifier.toml`; `actor.runtime` is `codex`;
   `actor.model` is the effective model used for the review.
@@ -135,7 +160,7 @@ Metadata rules:
 - `findings` values must be non-negative integers equal to the findings actually
   documented in the review body for each severity.
 - `supersedes` is `null` on iteration 1; later iterations must contain the
-  immediately preceding review `id`.
+  immediately preceding review `id` for the same task or codebase series.
 
 Do not rename, omit, or add metadata keys without introducing a new schema
 version. Markdown review content must begin only after the closing `---`.
@@ -143,12 +168,25 @@ version. Markdown review content must begin only after the closing `---`.
 Organize all documented findings in one alphabetical sequence across the whole
 review body: `A`, `B`, `C`, and so on. Do not restart the sequence in a new
 category. Each finding heading must begin with its letter, for example
-`### A — Missing cleanup`, and its `ID` must be
-`REVIEW-NNN-NN-A`, using the filename's task and review numbers. Findings
-counts in the YAML front matter count these lettered items.
+`### A — Missing cleanup`. Its `ID` must be `REVIEW-NNN-NN-A` for task reviews
+or `REVIEW-CODEBASE-NNN-A` for codebase reviews. Findings counts in the YAML
+front matter count these lettered items.
 
 After validating the artifact, the verifier must stage and commit only the new
 review file in a separate commit. The front-matter `reviewed_commit` remains the
 pre-review code snapshot, never the later review-artifact commit. If any
 unexpected non-review change appears during verification, stop as `BLOCKED`
 instead of including it in the review commit.
+
+## Permissions
+
+`PERMISSIONS.yml`, at the repository root, is the project's role -> capability
+policy. It applies to every agent regardless of runtime: a role such as
+`verifier` may be implemented as a Codex agent
+(`.codex/agents/verifier.toml`) or, for a different role, as a Claude Code
+subagent (`.claude/agents/<role>.md`) — the policy is written in terms of
+roles only and never mentions which runtime backs one. Any agent, in any
+runtime, that is about to perform an action this file gates must read it
+first and refuse if its own role is not listed as permitted. Do not
+duplicate a rule from this file into a runtime-specific definition; extend
+`PERMISSIONS.yml` itself instead, so the two never drift apart.
