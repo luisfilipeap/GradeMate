@@ -34,3 +34,4 @@ data-test/
 !.codex/agents/
 .codex/agents/*
 !.codex/agents/verifier.toml
+.codex/
