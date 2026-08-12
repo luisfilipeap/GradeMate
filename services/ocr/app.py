@@ -44,6 +44,14 @@ _inference_slots = threading.Semaphore(MAX_CONCURRENT_INFERENCES)
 MAX_PAGES = int(os.getenv("OCR_MAX_PAGES", "50"))
 MAX_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", str(40_000_000)))  # ~40 MP
 
+# A PDF page's MediaBox is expressed in points (1/72 inch) and says nothing
+# about the resolution it will be rasterised at. To apply the same pixel
+# ceiling to PDFs as to images, this service has to assume a DPI: it does not
+# know the backend's actual `page_render_dpi` (a caller can hit this service
+# directly, and the two are independent deployments), so this default simply
+# mirrors it.
+ASSUMED_PDF_DPI = int(os.getenv("OCR_ASSUMED_PDF_DPI", "150"))
+
 _engine: Any = None
 _engine_lock = threading.Lock()
 
@@ -181,7 +189,9 @@ def _enforce_size_limits(path: Path, suffix: str) -> None:
         from pypdf.errors import PdfReadError
 
         try:
-            page_count = len(PdfReader(str(path)).pages)
+            reader = PdfReader(str(path))
+            pages = reader.pages
+            page_count = len(pages)
         except (PdfReadError, ValueError, OSError) as error:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -192,6 +202,21 @@ def _enforce_size_limits(path: Path, suffix: str) -> None:
                 status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail=f"The PDF has {page_count} pages; at most {MAX_PAGES} are accepted.",
             )
+
+        dpi_scale = ASSUMED_PDF_DPI / 72  # MediaBox units are points, 1/72 inch.
+        for index, page in enumerate(pages, 1):
+            mediabox = page.mediabox
+            width = round(float(mediabox.width) * dpi_scale)
+            height = round(float(mediabox.height) * dpi_scale)
+            if width * height > MAX_IMAGE_PIXELS:
+                raise HTTPException(
+                    status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=(
+                        f"Page {index} of the PDF would render to {width}x{height} "
+                        f"({width * height} pixels) at {ASSUMED_PDF_DPI} DPI; "
+                        f"at most {MAX_IMAGE_PIXELS} pixels are accepted."
+                    ),
+                )
         return
 
     from PIL import Image
