@@ -82,6 +82,23 @@ def test_pdf_beyond_the_page_ceiling_is_refused(monkeypatch: pytest.MonkeyPatch)
     assert "5 pages" in response.json()["detail"]
 
 
+def test_pdf_with_an_oversized_page_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Within the page-count ceiling (one page), but its 200x200pt MediaBox
+    # rendered at the assumed DPI must exceed a tight pixel ceiling.
+    monkeypatch.setattr(ocr_app, "MAX_IMAGE_PIXELS", 1_000)
+    response = client.post("/ocr", files={"file": ("exam.pdf", _pdf_bytes(1), "application/pdf")})
+    assert response.status_code == 413
+    assert "Page 1" in response.json()["detail"]
+
+
+def test_pdf_page_size_is_accepted_below_the_pixel_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ocr_app, "MAX_IMAGE_PIXELS", 1_000_000)
+    response = client.post("/ocr", files={"file": ("exam.pdf", _pdf_bytes(1), "application/pdf")})
+    assert response.status_code == 200
+
+
 def test_image_beyond_the_pixel_ceiling_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ocr_app, "MAX_IMAGE_PIXELS", 100)
     response = client.post("/ocr", files={"file": ("page.png", _png_bytes(50, 50), "image/png")})
