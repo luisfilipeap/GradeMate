@@ -44,6 +44,11 @@ _inference_slots = threading.Semaphore(MAX_CONCURRENT_INFERENCES)
 MAX_PAGES = int(os.getenv("OCR_MAX_PAGES", "50"))
 MAX_IMAGE_PIXELS = int(os.getenv("OCR_MAX_IMAGE_PIXELS", str(40_000_000)))  # ~40 MP
 
+# Read in bounded chunks so an oversized upload is refused before it is ever
+# fully buffered in memory, rather than after.
+MAX_UPLOAD_BYTES = int(os.getenv("OCR_MAX_UPLOAD_BYTES", str(200_000_000)))  # ~200 MB
+_UPLOAD_CHUNK_BYTES = 1024 * 1024  # 1 MB
+
 # A PDF page's MediaBox is expressed in points (1/72 inch) and says nothing
 # about the resolution it will be rasterised at. To apply the same pixel
 # ceiling to PDFs as to images, this service has to assume a DPI: it does not
@@ -145,7 +150,7 @@ def run_ocr(
     # PaddleOCR reads from a path, and it needs the real extension to decide
     # whether the input is a PDF or a single image.
     with tempfile.NamedTemporaryFile(suffix=suffix) as scratch:
-        scratch.write(file.file.read())
+        _write_bounded(file.file, scratch)
         scratch.flush()
         _enforce_size_limits(Path(scratch.name), suffix)
 
@@ -175,6 +180,30 @@ def run_ocr(
         pages=pages,
         text="\n\n".join(page.text for page in pages),
     )
+
+
+def _write_bounded(source: Any, destination: Any) -> None:
+    """Copy ``source`` into ``destination`` in chunks, refusing an oversized upload.
+
+    Reads at most ``_UPLOAD_CHUNK_BYTES`` at a time and stops as soon as the
+    running total exceeds ``MAX_UPLOAD_BYTES``, so an oversized upload is
+    never buffered whole in memory before being rejected.
+    """
+    total = 0
+    while True:
+        chunk = source.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"The upload is at least {total} bytes; "
+                    f"at most {MAX_UPLOAD_BYTES} bytes are accepted."
+                ),
+            )
+        destination.write(chunk)
 
 
 def _enforce_size_limits(path: Path, suffix: str) -> None:

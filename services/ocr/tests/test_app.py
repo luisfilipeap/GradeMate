@@ -111,6 +111,54 @@ def test_image_within_the_pixel_ceiling_is_accepted(monkeypatch: pytest.MonkeyPa
     assert response.status_code == 200
 
 
+def test_upload_beyond_the_byte_ceiling_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ocr_app, "MAX_UPLOAD_BYTES", 100)
+    response = client.post(
+        "/ocr", files={"file": ("exam.pdf", b"x" * 1_000, "application/pdf")}
+    )
+    assert response.status_code == 413
+    assert "100 bytes" in response.json()["detail"]
+
+
+def test_upload_within_the_byte_ceiling_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(ocr_app, "MAX_UPLOAD_BYTES", 1_000_000)
+    response = client.post("/ocr", files={"file": ("exam.pdf", _pdf_bytes(1), "application/pdf")})
+    assert response.status_code == 200
+
+
+def test_write_bounded_refuses_before_reading_the_whole_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_write_bounded`` must read in bounded chunks, never the whole body at once."""
+    monkeypatch.setattr(ocr_app, "MAX_UPLOAD_BYTES", 10)
+    monkeypatch.setattr(ocr_app, "_UPLOAD_CHUNK_BYTES", 4)
+
+    class _FakeSource:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+            self._offset = 0
+            self.read_sizes: list[int] = []
+
+        def read(self, size: int = -1) -> bytes:
+            # A full-buffering read passes no size (or -1); a bounded read
+            # always asks for a fixed, small number of bytes.
+            assert size != -1, "source was read without a size limit"
+            self.read_sizes.append(size)
+            chunk = self._data[self._offset : self._offset + size]
+            self._offset += len(chunk)
+            return chunk
+
+    source = _FakeSource(b"x" * 1_000)
+    destination = io.BytesIO()
+
+    with pytest.raises(ocr_app.HTTPException) as excinfo:
+        ocr_app._write_bounded(source, destination)
+
+    assert excinfo.value.status_code == 413
+    # Stopped after a handful of 4-byte chunks, nowhere near the 1000-byte source.
+    assert sum(source.read_sizes) < 1_000
+
+
 def test_a_saturated_queue_answers_503_instead_of_hanging(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(ocr_app, "QUEUE_TIMEOUT_SECONDS", 0.2)
 

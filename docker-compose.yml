@@ -24,7 +24,8 @@ services:
     container_name: grademate-ocr
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      # Loopback only: nothing outside this machine can reach the OCR service directly.
+      - "127.0.0.1:8001:8001"
     environment:
       OCR_DEVICE: gpu:0
     volumes:
