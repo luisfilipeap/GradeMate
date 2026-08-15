@@ -219,13 +219,14 @@ of time.
 
 | Variable                       | Default      | Purpose                                                |
 | ------------------------------- | ------------ | ------------------------------------------------------- |
+| `OCR_MAX_UPLOAD_BYTES`          | `200000000`  | Largest upload size accepted, in bytes                  |
 | `OCR_MAX_PAGES`                 | `50`         | Largest page count accepted in one PDF                  |
 | `OCR_MAX_IMAGE_PIXELS`          | `40000000`   | Largest `width * height` accepted for a single image    |
 | `OCR_MAX_CONCURRENT_INFERENCES` | `1`          | How many requests may hold the GPU at once               |
 | `OCR_QUEUE_TIMEOUT_SECONDS`     | `60`         | How long a request waits for a free GPU slot before `503` |
 
-A request beyond the page or pixel ceiling is refused with `413`, before it reaches the engine. A
-request that cannot get a GPU slot within `OCR_QUEUE_TIMEOUT_SECONDS` (because another one is
+A request beyond the byte, page, or pixel ceiling is refused with `413`, before it reaches the
+engine. A request that cannot get a GPU slot within `OCR_QUEUE_TIMEOUT_SECONDS` (because another one is
 already running — there is only one GPU) is refused with `503`, rather than queueing forever or
 letting two inferences fight over the same card's memory.
 
