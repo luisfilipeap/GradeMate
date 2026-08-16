@@ -51,6 +51,16 @@ class Settings(BaseSettings):
     # OCR service and shown in the review screen, so the boxes always match.
     page_render_dpi: int = 150
 
+    # The LLM service from docker-compose (Ollama, opt-in via the "tools"
+    # profile; see docker-compose.yml).
+    llm_service_url: str = "http://localhost:11434"
+    # Model Ollama should use to answer a generate_structured call. Never
+    # hardcode a model name in application code; it belongs here so it can
+    # be swapped without a code change.
+    llm_model: str = "qwen3"
+    # Per-call HTTP timeout for a single call to the LLM service.
+    llm_timeout_seconds: float = 180.0
+
 
 @lru_cache
 def get_settings() -> Settings:
