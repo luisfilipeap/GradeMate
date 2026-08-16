@@ -61,15 +61,23 @@ class _OcrResponse(BaseModel):
 
 
 def recognise_image(
-    png: bytes, filename: str, page_width: int, page_height: int
+    png: bytes,
+    filename: str,
+    page_width: int,
+    page_height: int,
+    timeout: float | None = None,
 ) -> list[RecognisedRegion]:
     """Send one rendered page to the OCR service and return what it read.
 
     Boxes come back in the coordinate space of the image the service worked on,
     which the pipeline may resize; they are rescaled here to the pixels of the
     image we rendered, the one the interface displays.
+
+    ``timeout`` overrides ``settings.ocr_timeout_seconds`` for this call only,
+    letting a caller such as ``run_ocr`` pass the time actually left before its
+    own job deadline instead of always granting the full per-call budget.
     """
-    parsed = _post(png, filename)
+    parsed = _post(png, filename, timeout)
 
     regions = []
     for page in parsed.pages:
@@ -79,15 +87,17 @@ def recognise_image(
     return regions
 
 
-def _post(png: bytes, filename: str) -> _OcrResponse:
+def _post(png: bytes, filename: str, timeout: float | None = None) -> _OcrResponse:
     settings = get_settings()
     url = f"{settings.ocr_service_url.rstrip('/')}/ocr"
+    if timeout is None:
+        timeout = settings.ocr_timeout_seconds
 
     try:
         response = httpx.post(
             url,
             files={"file": (filename, png, "image/png")},
-            timeout=settings.ocr_timeout_seconds,
+            timeout=timeout,
         )
         response.raise_for_status()
     except httpx.HTTPStatusError as error:

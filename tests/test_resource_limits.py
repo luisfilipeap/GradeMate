@@ -99,7 +99,9 @@ def test_ocr_job_timeout_stops_a_run_that_takes_too_long(
 
     monkeypatch.setattr(get_settings(), "ocr_job_timeout_seconds", 0.05)
 
-    def _slow_recognise(png: bytes, filename: str, width: int, height: int) -> list:
+    def _slow_recognise(
+        png: bytes, filename: str, width: int, height: int, timeout: float | None = None
+    ) -> list:
         time.sleep(0.08)
         return [RecognisedRegion(text="x", box=[[0, 0], [1, 0], [1, 1], [0, 1]])]
 
@@ -110,4 +112,66 @@ def test_ocr_job_timeout_stops_a_run_that_takes_too_long(
     assert response.status_code == 504
     review = client.get(f"/api/submissions/{submission.id}/review").json()
     # No half-written reading: the run was rejected before anything was stored.
+    assert review["pages"] == []
+
+
+def test_ocr_job_timeout_when_the_only_call_exceeds_the_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, db_session: Session, submission: Submission
+) -> None:
+    """A single-page submission has no "between pages" gap to catch a slow call:
+    the deadline is only crossed *during* the one and only call, so it must be
+    re-checked after that call returns, not merely before it starts.
+    """
+    from app.core import storage
+
+    storage.write(submission.file_path, minimal_pdf_bytes(pages=1))
+
+    monkeypatch.setattr(get_settings(), "ocr_job_timeout_seconds", 0.05)
+
+    def _slow_recognise(
+        png: bytes, filename: str, width: int, height: int, timeout: float | None = None
+    ) -> list:
+        time.sleep(0.08)
+        return [RecognisedRegion(text="x", box=[[0, 0], [1, 0], [1, 1], [0, 1]])]
+
+    monkeypatch.setattr(review_module, "recognise_image", _slow_recognise)
+
+    response = client.post(f"/api/submissions/{submission.id}/ocr")
+
+    assert response.status_code == 504
+    review = client.get(f"/api/submissions/{submission.id}/review").json()
+    assert review["pages"] == []
+
+
+def test_ocr_job_timeout_when_only_the_last_page_call_exceeds_the_deadline(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, db_session: Session, submission: Submission
+) -> None:
+    """Every call before the last one stays within budget; only the final call
+    runs long enough to cross the deadline. The pre-call check ahead of that
+    last page still passes, so only the post-loop re-check can catch it.
+    """
+    from app.core import storage
+
+    storage.write(submission.file_path, minimal_pdf_bytes(pages=2))
+
+    monkeypatch.setattr(get_settings(), "ocr_job_timeout_seconds", 0.05)
+
+    calls = 0
+
+    def _recognise(
+        png: bytes, filename: str, width: int, height: int, timeout: float | None = None
+    ) -> list:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            time.sleep(0.08)
+        return [RecognisedRegion(text="x", box=[[0, 0], [1, 0], [1, 1], [0, 1]])]
+
+    monkeypatch.setattr(review_module, "recognise_image", _recognise)
+
+    response = client.post(f"/api/submissions/{submission.id}/ocr")
+
+    assert response.status_code == 504
+    assert calls == 2  # both pages were attempted; only the last one ran long
+    review = client.get(f"/api/submissions/{submission.id}/review").json()
     assert review["pages"] == []

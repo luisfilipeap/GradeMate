@@ -78,20 +78,37 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
     # already enforced inside `recognise_image`: a document with many pages,
     # each individually fast enough, could otherwise run unbounded.
     deadline = time.monotonic() + settings.ocr_job_timeout_seconds
+
+    def _deadline_exceeded() -> HTTPException:
+        return HTTPException(
+            status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=(
+                f"The OCR run exceeded its {settings.ocr_job_timeout_seconds:.0f}s "
+                f"job timeout after reading {len(recognised)} of {len(rendered)} "
+                "page(s). The previous reading, if any, was left untouched."
+            ),
+        )
+
     recognised = []
     try:
         for page in rendered:
-            if time.monotonic() > deadline:
-                raise HTTPException(
-                    status.HTTP_504_GATEWAY_TIMEOUT,
-                    detail=(
-                        f"The OCR run exceeded its {settings.ocr_job_timeout_seconds:.0f}s "
-                        f"job timeout after reading {len(recognised)} of {len(rendered)} "
-                        "page(s). The previous reading, if any, was left untouched."
-                    ),
-                )
-            regions = recognise_image(page.png, f"page-{page.number}.png", page.width, page.height)
+            now = time.monotonic()
+            if now > deadline:
+                raise _deadline_exceeded()
+            # The remaining job budget also bounds this call's own HTTP
+            # timeout, so a page can never wait past the deadline for a
+            # response that would be discarded anyway.
+            call_timeout = min(deadline - now, settings.ocr_timeout_seconds)
+            regions = recognise_image(
+                page.png, f"page-{page.number}.png", page.width, page.height, timeout=call_timeout
+            )
             recognised.append((page, regions))
+
+        # The loop above only checks the deadline *before* each call; the
+        # last call itself could still have run past it, so it must be
+        # re-checked once more before anything is persisted.
+        if time.monotonic() > deadline:
+            raise _deadline_exceeded()
     except OcrServiceError as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
 

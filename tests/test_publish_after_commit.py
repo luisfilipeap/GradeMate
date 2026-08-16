@@ -102,7 +102,9 @@ def test_ocr_commit_failure_leaves_the_previous_reading_intact(
     )
     db_session.commit()
 
-    def _fake_recognise(png: bytes, filename: str, width: int, height: int) -> list:
+    def _fake_recognise(
+        png: bytes, filename: str, width: int, height: int, timeout: float | None = None
+    ) -> list:
         return [RecognisedRegion(text="new reading", box=[[0, 0], [1, 0], [1, 1], [0, 1]])]
 
     monkeypatch.setattr(review_module, "recognise_image", _fake_recognise)
@@ -132,7 +134,9 @@ def test_ocr_run_on_a_fresh_submission_leaves_no_reading_at_all_on_commit_failur
     monkeypatch: pytest.MonkeyPatch,
     submission: Submission,
 ) -> None:
-    def _fake_recognise(png: bytes, filename: str, width: int, height: int) -> list:
+    def _fake_recognise(
+        png: bytes, filename: str, width: int, height: int, timeout: float | None = None
+    ) -> list:
         return [RecognisedRegion(text="new reading", box=[[0, 0], [1, 0], [1, 1], [0, 1]])]
 
     monkeypatch.setattr(review_module, "recognise_image", _fake_recognise)
