@@ -14,14 +14,28 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import SessionDep
 from app.core import pdf, storage
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.models import OcrLine, Submission, SubmissionPage
 from app.schemas import OcrLineRead, OcrLineUpdate, ReviewRead
+from app.services import normalization_guard
+from app.services.gpu_handoff import GpuHandoffError, gpu_service
+from app.services.llm_client import LlmServiceError, generate_structured
 from app.services.ocr_client import OcrServiceError, recognise_image
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["review"])
+
+# Schema the LLM's structured-output response must match (see
+# app.services.llm_client.generate_structured). A single string field keeps
+# the contract simple; the semantic guard, not the schema, is what protects
+# meaning.
+_NORMALIZE_SCHEMA = {
+    "type": "object",
+    "properties": {"normalized": {"type": "string"}},
+    "required": ["normalized"],
+    "additionalProperties": False,
+}
 
 
 @router.get("/submissions/{submission_id}/review", response_model=ReviewRead)
@@ -91,26 +105,40 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
 
     recognised = []
     try:
-        for page in rendered:
-            now = time.monotonic()
-            if now > deadline:
-                raise _deadline_exceeded()
-            # The remaining job budget also bounds this call's own HTTP
-            # timeout, so a page can never wait past the deadline for a
-            # response that would be discarded anyway.
-            call_timeout = min(deadline - now, settings.ocr_timeout_seconds)
-            regions = recognise_image(
-                page.png, f"page-{page.number}.png", page.width, page.height, timeout=call_timeout
-            )
-            recognised.append((page, regions))
+        # Sequential GPU handoff (issue #21): the OCR container is brought up
+        # for this run and stopped again as soon as this block exits, so it
+        # is never GPU-resident at the same time as the `llm` container the
+        # normalization step below brings up in turn.
+        with gpu_service("ocr"):
+            for page in rendered:
+                now = time.monotonic()
+                if now > deadline:
+                    raise _deadline_exceeded()
+                # The remaining job budget also bounds this call's own HTTP
+                # timeout, so a page can never wait past the deadline for a
+                # response that would be discarded anyway.
+                call_timeout = min(deadline - now, settings.ocr_timeout_seconds)
+                regions = recognise_image(
+                    page.png,
+                    f"page-{page.number}.png",
+                    page.width,
+                    page.height,
+                    timeout=call_timeout,
+                )
+                recognised.append((page, regions))
 
-        # The loop above only checks the deadline *before* each call; the
-        # last call itself could still have run past it, so it must be
-        # re-checked once more before anything is persisted.
-        if time.monotonic() > deadline:
-            raise _deadline_exceeded()
+            # The loop above only checks the deadline *before* each call; the
+            # last call itself could still have run past it, so it must be
+            # re-checked once more before anything is persisted.
+            if time.monotonic() > deadline:
+                raise _deadline_exceeded()
     except OcrServiceError as error:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail=str(error)) from error
+    except GpuHandoffError as error:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            detail=f"Could not bring up the OCR service for this run: {error}",
+        ) from error
 
     # Replace any previous reading of this submission.
     for page in submission.pages:
@@ -169,6 +197,13 @@ def run_ocr(submission_id: uuid.UUID, session: SessionDep) -> ReviewRead:
             detail="The OCR reading was recorded but some page images could not be stored.",
         )
 
+    # The OCR reading is durably committed by this point; normalization is a
+    # best-effort enhancement layered on top of it, never a precondition for
+    # it. Any failure here — the LLM unreachable, timing out, answering
+    # something malformed, or the semantic guard rejecting its proposal —
+    # flags the affected line and returns normally, per issue #21.
+    _normalize_submission(session, submission)
+
     return _to_review(submission)
 
 
@@ -205,6 +240,86 @@ def update_line(line_id: uuid.UUID, payload: OcrLineUpdate, session: SessionDep)
     session.commit()
     session.refresh(line)
     return line
+
+
+def _normalize_submission(session: Session, submission: Submission) -> None:
+    """Normalize every eligible line of a freshly OCR'd submission (issue #21).
+
+    Eligible lines are formula regions and math-bearing text lines (see
+    `normalization_guard.is_eligible`). When there are none, the `llm`
+    container is never brought up at all — nothing to gain from paying that
+    GPU handoff for a submission with no math on it.
+    """
+    lines = [line for page in submission.pages for line in page.lines]
+    eligible = [line for line in lines if normalization_guard.is_eligible(line.text, line.label)]
+    if not eligible:
+        return
+
+    settings = get_settings()
+    try:
+        # Same sequential handoff as the OCR call above, mirrored: `llm` is
+        # brought up only for this block and stopped again as soon as it
+        # exits, so `ocr` (already stopped above) and `llm` are never
+        # GPU-resident together.
+        with gpu_service("llm", profile="tools"):
+            for line in eligible:
+                _normalize_line(line, settings)
+    except GpuHandoffError as error:
+        logger.warning(
+            "Submission %s: could not bring up the LLM service for normalization: %s",
+            submission.id,
+            error,
+        )
+        # Nothing in the block above ran (the handoff failed before it could
+        # yield) or it was cut short partway through; either way, every line
+        # that did not get a result must be flagged, not silently left as
+        # "not attempted" — the review screen has no other way to know.
+        for line in eligible:
+            if line.normalized_text is None:
+                line.normalization_incomplete = True
+
+    session.commit()
+
+
+def _normalize_line(line: OcrLine, settings: Settings) -> None:
+    """Ask the LLM to normalize one line and apply the semantic guard to its answer."""
+    try:
+        response = generate_structured(
+            _normalize_prompt(line.text), _NORMALIZE_SCHEMA, timeout=settings.llm_timeout_seconds
+        )
+    except LlmServiceError as error:
+        logger.warning("Line %s: normalization request failed: %s", line.id, error)
+        line.normalized_text = None
+        line.normalization_incomplete = True
+        return
+
+    proposal = response.get("normalized")
+    if not isinstance(proposal, str) or not proposal.strip():
+        logger.warning("Line %s: normalization returned an empty proposal", line.id)
+        line.normalized_text = None
+        line.normalization_incomplete = True
+        return
+
+    if not normalization_guard.guard_passes(line.text, proposal):
+        logger.info("Line %s: normalization proposal rejected by the semantic guard", line.id)
+        line.normalized_text = None
+        line.normalization_incomplete = True
+        return
+
+    line.normalized_text = proposal
+    line.normalization_incomplete = False
+
+
+def _normalize_prompt(text: str) -> str:
+    return (
+        "Rewrite the following OCR transcription of a handwritten exam answer "
+        "as syntactically valid LaTeX/Markdown. Preserve every number, "
+        "variable and symbol exactly as given — do not fix, simplify, "
+        "evaluate, or otherwise change what was written, only its "
+        "formatting.\n\n"
+        f"OCR transcription:\n{text}\n\n"
+        'Answer as JSON of the shape {"normalized": "<the rewritten text>"}.'
+    )
 
 
 def _get_submission(session: Session, submission_id: uuid.UUID) -> Submission:
