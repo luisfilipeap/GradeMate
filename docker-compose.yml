@@ -51,8 +51,8 @@ services:
   #
   # Shares the card with `ocr` and neither service gives its memory back by
   # going idle, so on a single 12 GB GPU only one of the two can actually run
-  # at a time: see README > "GPU budget and alternation" for the measured
-  # figures and the switch-over workflow (`scripts/switch-gpu.sh`).
+  # at a time. There is no documented switch-over workflow yet; a script and
+  # README section covering this are follow-up work, not implemented today.
   llm:
     image: ollama/ollama:latest
     container_name: grademate-llm
@@ -62,7 +62,8 @@ services:
       - "11434:11434"
     environment:
       # Idle period before Ollama unloads the model and frees the GPU on its
-      # own. PaddleOCR-VL cannot do this (see README); Ollama can, natively.
+      # own. PaddleOCR-VL cannot do this — it holds GPU memory until the
+      # container stops. Ollama can, natively.
       OLLAMA_KEEP_ALIVE: 5m
     volumes:
       - grademate_llm_models:/root/.ollama
