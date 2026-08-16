@@ -99,9 +99,6 @@ services:
 
 volumes:
   grademate_pgdata:
-  # Holds the uploaded exam PDFs. The backend container mounts it at
-  # /data/storage (STORAGE_ROOT); the database only stores paths relative to it.
-  grademate_storage:
   # PaddleOCR model weights, downloaded on the first request.
   grademate_ocr_models:
   # Ollama model weights, downloaded on the first pull.
