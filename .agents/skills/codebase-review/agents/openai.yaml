@@ -1,7 +1,0 @@
-interface:
-  display_name: "Codebase Review"
-  short_description: "Audit codebase with a chosen reviewer agent"
-  default_prompt: "Use $codebase-review AGENT_ID to audit the repository with that custom reviewer."
-
-policy:
-  allow_implicit_invocation: false

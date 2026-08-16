@@ -1,7 +1,0 @@
-interface:
-  display_name: "Review Task"
-  short_description: "Review a task with the configured verifier"
-  default_prompt: "Use $review-task with a TASK-NNN ID and the verifier's current alias."
-
-policy:
-  allow_implicit_invocation: false
