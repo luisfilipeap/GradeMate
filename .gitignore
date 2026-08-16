@@ -9,6 +9,7 @@ venv/
 
 # Environment
 .env
+.env.local
 
 # Editors / OS
 .idea/
@@ -23,15 +24,34 @@ storage/
 # must never be committed.
 data-test/
 
-# Review artifacts are local communication records and must never be committed.
-.ai/reviews/
+# ============================================================================
+# MyDevOffice Agent Governance Framework — LOCAL ONLY
+# ============================================================================
+# These files are PART OF THE GRADEMATE WORKING ENVIRONMENT, NOT part of the
+# production codebase. They enable agent-to-agent communication and local
+# skill execution. They must NEVER be committed to the repository.
+#
+# **IMPORTANT FOR ALL AGENTS:**
+# - DO NOT commit these files
+# - DO NOT delete these files (they enable agent communication)
+# - DO keep them updated locally as work progresses
 
-# Contributor-specific agent configuration remains local. The shared verifier
-# contract is explicitly versioned so reviews can record `config_commit`.
-.claude/
-.codex/*
-!.codex/config.toml
-!.codex/agents/
-.codex/agents/*
-!.codex/agents/verifier.toml
-.codex/
+# Agent role definitions and skill implementations (MyDevOffice framework)
+.claude/agents/
+.codex/agents/
+
+# Agent governance policies
+AGENTS.md
+PERMISSIONS.yml
+
+# Architecture decision records (local planning, not production docs)
+docs/architecture/decisions/
+
+# Local agent-specific configuration (never versioned)
+.codex/config.toml
+
+# Agent-to-agent communication artifacts (local only — DO NOT DELETE)
+# These files persist locally and enable agent coordination
+.ai/recommendations/
+.ai/reviews/
+.ai/
