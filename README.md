@@ -133,12 +133,12 @@ Rules enforced by the database:
 
 ## File storage
 
-The exam PDFs are not stored in the database. They live on the `grademate_storage` Docker volume,
-mounted into the backend container at `/data/storage` (`STORAGE_ROOT`); outside the container the
-default is `./storage`.
+The exam PDFs are not stored in the database. The backend is a plain host process (`uvicorn`, not
+containerized), and it stores PDFs under `STORAGE_ROOT`, a directory on that host — `./storage` by
+default.
 
 `submissions.file_path` and `assessments.question_paper_path` hold paths **relative** to that root,
-so remounting the volume elsewhere never invalidates the rows:
+so moving `STORAGE_ROOT` elsewhere never invalidates the rows:
 
 ```
 <STORAGE_ROOT>/submissions/<assessment_id>/<student_id>.pdf
@@ -148,8 +148,8 @@ so remounting the volume elsewhere never invalidates the rows:
 `app/core/storage.py` builds these paths (`submission_file_path`, `question_paper_path`) and turns
 them back into absolute ones (`resolve`, which refuses any path that escapes the storage root). A
 file is written to a temporary location first and only moved into its final path (`stage` +
-`publish`) once the database transaction referencing it has actually committed, so the volume never
-holds a file the database does not know about.
+`publish`) once the database transaction referencing it has actually committed, so `STORAGE_ROOT`
+never holds a file the database does not know about.
 
 ## OCR service
 

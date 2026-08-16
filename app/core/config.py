@@ -21,8 +21,8 @@ class Settings(BaseSettings):
     # Log every SQL statement issued by SQLAlchemy.
     sql_echo: bool = False
 
-    # Root of the storage volume holding the uploaded PDFs. Inside the container
-    # this is the mount point of the `grademate_storage` volume; the database
+    # Root directory on the host filesystem holding the uploaded PDFs (the
+    # backend runs as a plain host process, not in a container). The database
     # stores paths relative to it, never absolute ones.
     storage_root: Path = Path("./storage")
 
