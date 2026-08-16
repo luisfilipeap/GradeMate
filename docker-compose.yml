@@ -57,6 +57,7 @@ services:
     image: ollama/ollama:latest
     container_name: grademate-llm
     restart: unless-stopped
+    profiles: ["tools"]
     ports:
       - "11434:11434"
     environment:
