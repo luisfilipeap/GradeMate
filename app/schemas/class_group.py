@@ -22,10 +22,10 @@ class ClassBase(BaseModel):
     academic_term: str | None = Field(default=None, max_length=40)
     description: str | None = None
 
-    @field_validator("name")
+    @field_validator("name", mode="before")
     @classmethod
     def strip_name(cls, value: str) -> str:
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("code", "academic_term", "description")
     @classmethod
@@ -42,6 +42,11 @@ class ClassUpdate(BaseModel):
     code: str | None = Field(default=None, max_length=60)
     academic_term: str | None = Field(default=None, max_length=40)
     description: str | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def strip_name(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("code", "academic_term", "description")
     @classmethod

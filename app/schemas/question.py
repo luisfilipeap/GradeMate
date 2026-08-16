@@ -13,10 +13,10 @@ class QuestionBase(BaseModel):
     number: str = Field(min_length=1, max_length=20)
     statement: str = Field(min_length=1)
 
-    @field_validator("number", "statement")
+    @field_validator("number", "statement", mode="before")
     @classmethod
     def strip_text(cls, value: str) -> str:
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
 
 class QuestionCreate(QuestionBase):
@@ -27,10 +27,10 @@ class QuestionUpdate(BaseModel):
     number: str | None = Field(default=None, min_length=1, max_length=20)
     statement: str | None = Field(default=None, min_length=1)
 
-    @field_validator("number", "statement")
+    @field_validator("number", "statement", mode="before")
     @classmethod
     def strip_text(cls, value: str | None) -> str | None:
-        return value.strip() if value else value
+        return value.strip() if isinstance(value, str) else value
 
 
 class QuestionRead(QuestionBase):
