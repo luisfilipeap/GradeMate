@@ -21,6 +21,13 @@ class OcrLineRead(BaseModel):
     label: str | None
     # Polygon in pixels of the page image: [[x, y], ...].
     box: list[list[float]]
+    # LLM-normalized LaTeX/Markdown, set only when normalization ran and
+    # passed the semantic guard (issue #21). Distinct from `corrected_text`.
+    normalized_text: str | None
+    # True when normalization did not produce a usable `normalized_text`:
+    # the LLM was unreachable, timed out, answered something malformed, or
+    # the guard rejected its proposal.
+    normalization_incomplete: bool
     created_at: datetime
     updated_at: datetime
 
