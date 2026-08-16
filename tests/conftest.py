@@ -180,6 +180,20 @@ def storage_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def gpu_handoff_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep tests from driving real `docker compose` (issue #21).
+
+    Autouse, so no test triggers a real container start/stop merely by
+    calling `POST .../ocr`. `tests/test_gpu_handoff.py` re-enables this
+    explicitly and mocks `subprocess.run`, to test the orchestration itself
+    without touching real containers.
+    """
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "gpu_handoff_enabled", False)
+
+
 @pytest.fixture
 def client(db_session: Session) -> Iterator[TestClient]:
     """A FastAPI ``TestClient`` bound to ``db_session`` instead of a fresh session."""

@@ -109,6 +109,8 @@ erDiagram
         bool accepted
         string label "text, formula, table…"
         jsonb box "polygon in page pixels"
+        text normalized_text "nullable, LLM LaTeX/Markdown proposal"
+        bool normalization_incomplete
         timestamptz created_at
         timestamptz updated_at
     }
