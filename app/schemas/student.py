@@ -13,10 +13,10 @@ class StudentBase(BaseModel):
     registration_number: str = Field(min_length=1, max_length=40)
     email: EmailStr = Field(max_length=255)
 
-    @field_validator("full_name", "registration_number")
+    @field_validator("full_name", "registration_number", mode="before")
     @classmethod
     def strip_text(cls, value: str) -> str:
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("email")
     @classmethod
@@ -33,6 +33,11 @@ class StudentUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=1, max_length=160)
     registration_number: str | None = Field(default=None, min_length=1, max_length=40)
     email: EmailStr | None = Field(default=None, max_length=255)
+
+    @field_validator("full_name", "registration_number", mode="before")
+    @classmethod
+    def strip_text(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("email")
     @classmethod

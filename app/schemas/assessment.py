@@ -15,10 +15,10 @@ class AssessmentBase(BaseModel):
     applied_on: date | None = None
     max_score: Decimal = Field(default=Decimal("100"), gt=0, max_digits=6, decimal_places=2)
 
-    @field_validator("title")
+    @field_validator("title", mode="before")
     @classmethod
     def strip_title(cls, value: str) -> str:
-        return value.strip()
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("description")
     @classmethod
@@ -37,6 +37,11 @@ class AssessmentUpdate(BaseModel):
     description: str | None = None
     applied_on: date | None = None
     max_score: Decimal | None = Field(default=None, gt=0, max_digits=6, decimal_places=2)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def strip_title(cls, value: str | None) -> str | None:
+        return value.strip() if isinstance(value, str) else value
 
 
 class AssessmentRead(AssessmentBase):
