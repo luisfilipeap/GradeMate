@@ -57,6 +57,20 @@ class OcrLine(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     # Polygon around the line, as [[x, y], ...] in pixels of the page image.
     box: Mapped[list[list[float]]] = mapped_column(JSONB, nullable=False)
 
+    # LLM-normalized LaTeX/Markdown for this line (issue #21), set only when
+    # normalization ran, produced a well-formed response, and passed the
+    # semantic preservation guard. NULL means "not attempted, or rejected".
+    # Deliberately not `corrected_text`: that field means "the teacher edited
+    # this"; a normalization is a machine proposal, never a teacher's edit.
+    normalized_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # True when normalization did not yield a usable `normalized_text`: the
+    # LLM service was unreachable or timed out, its response was malformed,
+    # or the semantic guard rejected its proposal. Sets a warning for the
+    # teacher; never blocks accepting or rewriting the line via `text` /
+    # `corrected_text`.
+    normalization_incomplete: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     page: Mapped[SubmissionPage] = relationship(back_populates="lines")
 
     @property

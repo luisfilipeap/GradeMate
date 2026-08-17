@@ -61,6 +61,22 @@ class Settings(BaseSettings):
     # Per-call HTTP timeout for a single call to the LLM service.
     llm_timeout_seconds: float = 180.0
 
+    # Whether `run_ocr()` drives the sequential GPU handoff between `ocr` and
+    # `llm` via `docker compose` (app/services/gpu_handoff.py, issue #21).
+    # Off in the test suite (see the `gpu_handoff_disabled` fixture in
+    # tests/conftest.py), since enabling it runs real `docker compose`
+    # commands against real containers.
+    gpu_handoff_enabled: bool = True
+    # Path to the docker-compose.yml this backend orchestrates, resolved the
+    # same way as `storage_root`: relative to the process's cwd, which is the
+    # repository root when the backend is started as documented in README.md.
+    gpu_handoff_compose_file: Path = Path("docker-compose.yml")
+    # How long to wait for `docker compose up -d --wait <service>` to report
+    # the container healthy.
+    gpu_handoff_start_timeout_seconds: float = 300.0
+    # How long to wait for `docker compose stop <service>`.
+    gpu_handoff_stop_timeout_seconds: float = 60.0
+
 
 @lru_cache
 def get_settings() -> Settings:

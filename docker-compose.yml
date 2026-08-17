@@ -46,13 +46,15 @@ services:
       retries: 5
       start_period: 30s
 
-  # Local LLM inference (Qwen3), backed by Ollama. Used by TASK-011 (question
-  # extraction) and TASK-012 (LaTeX repair) — nothing calls it yet.
+  # Local LLM inference (Qwen3), backed by Ollama. Used by post-OCR LaTeX
+  # normalization (app/services/gpu_handoff.py, issue #21).
   #
   # Shares the card with `ocr` and neither service gives its memory back by
   # going idle, so on a single 12 GB GPU only one of the two can actually run
-  # at a time. There is no documented switch-over workflow yet; a script and
-  # README section covering this are follow-up work, not implemented today.
+  # at a time. `run_ocr()` handles the switch-over itself, via
+  # `docker compose`: it stops `ocr` before bringing this container up for
+  # normalization, and stops this one again before returning — the two are
+  # never both GPU-resident.
   llm:
     image: ollama/ollama:latest
     container_name: grademate-llm
