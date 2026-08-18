@@ -73,6 +73,13 @@ export type OcrLine = {
   label: string | null
   /** Polygon in pixels of the page image: [[x, y], ...]. */
   box: number[][]
+  /**
+   * LLM-normalized LaTeX/Markdown, set only when normalization ran and passed
+   * the semantic guard. `null` whenever `normalization_incomplete` is true.
+   */
+  normalized_text: string | null
+  /** True when normalization did not produce a usable `normalized_text`. */
+  normalization_incomplete: boolean
 }
 
 export type SubmissionPage = {
