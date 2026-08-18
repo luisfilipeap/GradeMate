@@ -285,7 +285,9 @@ def _normalize_line(line: OcrLine, settings: Settings) -> None:
     """Ask the LLM to normalize one line and apply the semantic guard to its answer."""
     try:
         response = generate_structured(
-            _normalize_prompt(line.text), _NORMALIZE_SCHEMA, timeout=settings.llm_timeout_seconds
+            _normalize_prompt(line.text, line.label),
+            _NORMALIZE_SCHEMA,
+            timeout=settings.llm_timeout_seconds,
         )
     except LlmServiceError as error:
         logger.warning("Line %s: normalization request failed: %s", line.id, error)
@@ -310,13 +312,41 @@ def _normalize_line(line: OcrLine, settings: Settings) -> None:
     line.normalization_incomplete = False
 
 
-def _normalize_prompt(text: str) -> str:
+# Delimiter guidance per label (issue #29): the whole-transcript preview
+# runs KaTeX's auto-render over the concatenated `normalized_text` of every
+# accepted line (see `KATEX_DELIMITERS` in
+# frontend/src/pages/review-page.tsx), which only turns text inside one of
+# those delimiter pairs into a rendered formula — anything else, including a
+# bare LaTeX command, is shown as literal text. A `display_formula` or
+# `inline_formula` region *is* a formula end to end, so the whole response is
+# wrapped; a `text` line is normal prose that merely contains some math, so
+# only that math is wrapped and the rest is left untouched.
+_DISPLAY_DELIMITER_INSTRUCTION = (
+    "Wrap the entire rewritten response in display-math delimiters: $$ ... $$."
+)
+_INLINE_DELIMITER_INSTRUCTION = (
+    "Wrap the entire rewritten response in inline-math delimiters: $ ... $."
+)
+_TEXT_DELIMITER_INSTRUCTION = (
+    "Wrap only the mathematical portions of the response in inline-math "
+    "delimiters, $ ... $, and leave the surrounding prose exactly as written."
+)
+
+
+def _normalize_prompt(text: str, label: str | None) -> str:
+    if label == "display_formula":
+        delimiter_instruction = _DISPLAY_DELIMITER_INSTRUCTION
+    elif label == "inline_formula":
+        delimiter_instruction = _INLINE_DELIMITER_INSTRUCTION
+    else:
+        delimiter_instruction = _TEXT_DELIMITER_INSTRUCTION
+
     return (
         "Rewrite the following OCR transcription of a handwritten exam answer "
         "as syntactically valid LaTeX/Markdown. Preserve every number, "
         "variable and symbol exactly as given — do not fix, simplify, "
         "evaluate, or otherwise change what was written, only its "
-        "formatting.\n\n"
+        f"formatting. {delimiter_instruction}\n\n"
         f"OCR transcription:\n{text}\n\n"
         'Answer as JSON of the shape {"normalized": "<the rewritten text>"}.'
     )

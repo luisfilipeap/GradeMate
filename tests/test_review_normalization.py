@@ -227,6 +227,26 @@ def test_guard_rejects_a_proposal_that_alters_a_numeral(
     assert lines[0]["normalization_incomplete"] is True
 
 
+@pytest.mark.parametrize(
+    ("label", "expected_snippet"),
+    [
+        ("display_formula", "$$ ... $$"),
+        ("inline_formula", "$ ... $"),
+        ("text", "Wrap only the mathematical portions"),
+        (None, "Wrap only the mathematical portions"),
+    ],
+)
+def test_normalize_prompt_gives_distinct_delimiter_guidance_per_label(
+    label: str | None, expected_snippet: str
+) -> None:
+    prompt = review_module._normalize_prompt("2+2=4", label)
+    assert expected_snippet in prompt
+    # The transcription section itself stays label-independent, so callers
+    # (and this test suite's `_echo_generate` fakes) can keep slicing it out
+    # the same way regardless of which delimiter guidance preceded it.
+    assert "OCR transcription:\n2+2=4\n\n" in prompt
+
+
 def test_a_malformed_llm_response_is_treated_as_incomplete(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:

@@ -72,3 +72,34 @@ def test_guard_rejects_a_restructuring_that_drops_a_protected_symbol() -> None:
     # rejected if it does not keep every protected symbol (see the guard's
     # module docstring for why).
     assert guard.guard_passes("1/2", r"\frac{1}{2}") is False
+
+
+def test_guard_rejects_a_bare_latex_command_outside_any_delimiter() -> None:
+    # issue #29: KaTeX only renders math inside a recognized delimiter pair;
+    # a bare command left outside one would render as literal text.
+    assert guard.guard_passes(r"\frac{1}{2}", r"\frac{1}{2}") is False
+
+
+def test_guard_passes_a_latex_command_wrapped_in_inline_delimiters() -> None:
+    assert guard.guard_passes(r"\frac{1}{2}", r"$\frac{1}{2}$") is True
+
+
+def test_guard_passes_plain_arithmetic_with_no_latex_command() -> None:
+    assert guard.guard_passes("2+2=4", "2 + 2 = 4") is True
+
+
+def test_guard_passes_a_command_wrapped_in_display_dollars() -> None:
+    assert guard.guard_passes(r"\frac{1}{2}", r"$$\frac{1}{2}$$") is True
+
+
+def test_guard_rejects_a_bare_command_alongside_a_properly_wrapped_one() -> None:
+    # One command is delimited, the other is not — still rejected.
+    assert guard.guard_passes(r"\frac{1}{2} \sqrt{4}", r"$\frac{1}{2}$ \sqrt{4}") is False
+
+
+def test_guard_passes_a_command_wrapped_in_bracket_delimiters() -> None:
+    assert guard.guard_passes(r"\frac{1}{2}", r"\[\frac{1}{2}\]") is True
+
+
+def test_guard_passes_a_command_wrapped_in_paren_delimiters() -> None:
+    assert guard.guard_passes(r"\frac{1}{2}", r"\(\frac{1}{2}\)") is True
