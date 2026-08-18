@@ -1,3 +1,6 @@
+import 'katex/dist/katex.min.css'
+
+import renderMathInElement from 'katex/contrib/auto-render'
 import { ArrowLeft, Check, Copy, Pencil, ScanText, Undo2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -15,6 +18,16 @@ import { cn } from '@/lib/utils'
 /** What the transcript shows for a line: the teacher's edit, or the OCR reading. */
 function finalText(line: OcrLine): string {
   return line.corrected_text ?? line.text
+}
+
+/**
+ * What the whole-transcript preview shows for a line: the LLM-normalized
+ * LaTeX/Markdown when available, or the same fallback as the plain view.
+ * `normalization_incomplete` always pairs with `normalized_text === null`,
+ * so falling back to `finalText` here never renders a blank segment.
+ */
+function previewText(line: OcrLine): string {
+  return line.normalized_text ?? finalText(line)
 }
 
 /**
@@ -68,7 +81,7 @@ export function ReviewPage() {
   const transcript = useMemo(() => {
     if (!review) return ''
     return review.pages
-      .map((item) => item.lines.filter((line) => line.accepted).map(finalText).join('\n'))
+      .map((item) => item.lines.filter((line) => line.accepted).map(previewText).join('\n'))
       .filter(Boolean)
       .join('\n\n')
   }, [review])
@@ -212,14 +225,47 @@ export function ReviewPage() {
                   Copy
                 </Button>
               </div>
-              <pre className="bg-muted/50 max-h-[35vh] overflow-auto rounded-lg border p-3 font-mono text-xs whitespace-pre-wrap">
-                {transcript || 'Accept a line to start building the transcript.'}
-              </pre>
+              <TranscriptPreview text={transcript} />
             </section>
           </div>
         </div>
       )}
     </>
+  )
+}
+
+const KATEX_DELIMITERS = [
+  { left: '$$', right: '$$', display: true },
+  { left: '\\[', right: '\\]', display: true },
+  { left: '$', right: '$', display: false },
+  { left: '\\(', right: '\\)', display: false },
+]
+
+/**
+ * Renders the whole transcript as one continuous block, running KaTeX's
+ * auto-render over it so `$…$`/`$$…$$` segments become formulas while plain
+ * text stays as-is. Runs again on every `text` change, so edits to any line
+ * show up immediately.
+ */
+function TranscriptPreview({ text }: { text: string }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    renderMathInElement(container, {
+      delimiters: KATEX_DELIMITERS,
+      throwOnError: false,
+    })
+  }, [text])
+
+  return (
+    <div
+      ref={containerRef}
+      className="bg-muted/50 max-h-[35vh] overflow-auto rounded-lg border p-3 text-sm whitespace-pre-wrap"
+    >
+      {text || 'Accept a line to start building the transcript.'}
+    </div>
   )
 }
 
