@@ -54,6 +54,7 @@ def _lines_of(response_json: dict) -> list[dict]:
 def test_single_page_submission_normalizes_an_eligible_formula_line(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
+    """OCR finds formula, LLM normalizes it, GPU handoff is sequential (OCR→LLM)."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_formula_region("2+2=4")]
     )
@@ -87,6 +88,7 @@ def test_single_page_submission_normalizes_an_eligible_formula_line(
 def test_a_submission_with_no_math_never_brings_up_the_llm_container(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
+    """Plain text (not eligible) skips LLM entirely; only OCR runs."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_plain_text_region("just prose")]
     )
@@ -113,6 +115,7 @@ def test_a_submission_with_no_math_never_brings_up_the_llm_container(
 def test_multi_page_submission_normalizes_each_eligible_line(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, db_session: Session, submission: Submission
 ) -> None:
+    """Multi-page submissions: each page's eligible lines are normalized independently."""
     storage.write(submission.file_path, minimal_pdf_bytes(pages=2))
 
     def _fake_recognise(
@@ -150,6 +153,7 @@ def test_multi_page_submission_normalizes_each_eligible_line(
 def test_llm_timeout_preserves_the_ocr_text_and_flags_the_region(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
+    """LLM timeout: normalized_text remains None, normalization_incomplete=True, teacher can still edit."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_formula_region("2+2=4")]
     )
@@ -177,7 +181,7 @@ def test_llm_timeout_preserves_the_ocr_text_and_flags_the_region(
 def test_llm_service_unreachable_during_the_gpu_handoff_preserves_the_reading(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
-    """Unreachable at the container level (the handoff itself), not just the HTTP call."""
+    """GPU handoff failure (container unavailable): normalized_text stays None, teacher workflow unaffected."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_formula_region("2+2=4")]
     )
@@ -209,6 +213,7 @@ def test_llm_service_unreachable_during_the_gpu_handoff_preserves_the_reading(
 def test_guard_rejects_a_proposal_that_alters_a_numeral(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
+    """Guard rejects: LLM changed 4→5; normalized_text stays None, normalization_incomplete=True."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_formula_region("2+2=4")]
     )
@@ -227,6 +232,58 @@ def test_guard_rejects_a_proposal_that_alters_a_numeral(
     assert lines[0]["normalization_incomplete"] is True
 
 
+def test_text_line_with_latex_command_gets_wrapped_in_delimiters(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
+) -> None:
+    """Text label: LaTeX commands in prose are wrapped in $ $, surrounding prose untouched."""
+    monkeypatch.setattr(
+        review_module,
+        "recognise_image",
+        lambda *a, **kw: [_plain_text_region(r"The answer is \sqrt{4} of the total")],
+    )
+
+    # LLM follows the prompt instruction to wrap only the math portion.
+    monkeypatch.setattr(
+        review_module,
+        "generate_structured",
+        lambda prompt, schema, timeout=None: {"normalized": r"The answer is $\sqrt{4}$ of the total"},
+    )
+
+    response = client.post(f"/api/submissions/{submission.id}/ocr")
+
+    assert response.status_code == 200, response.text
+    lines = _lines_of(response.json())
+    assert lines[0]["text"] == r"The answer is \sqrt{4} of the total"
+    assert lines[0]["normalized_text"] == r"The answer is $\sqrt{4}$ of the total"
+    assert lines[0]["normalization_incomplete"] is False
+
+
+def test_portuguese_text_with_arrow_command_gets_wrapped(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
+) -> None:
+    """Text label: \\rightarrow command and its numeric operand wrapped as equation, surrounding prose untouched."""
+    monkeypatch.setattr(
+        review_module,
+        "recognise_image",
+        lambda *a, **kw: [_plain_text_region(r"entradas \rightarrow 3 entradas")],
+    )
+
+    # LLM wraps the arrow and its numeric operand as a single equation.
+    monkeypatch.setattr(
+        review_module,
+        "generate_structured",
+        lambda prompt, schema, timeout=None: {"normalized": r"entradas $\rightarrow 3$ entradas"},
+    )
+
+    response = client.post(f"/api/submissions/{submission.id}/ocr")
+
+    assert response.status_code == 200, response.text
+    lines = _lines_of(response.json())
+    assert lines[0]["text"] == r"entradas \rightarrow 3 entradas"
+    assert lines[0]["normalized_text"] == r"entradas $\rightarrow 3$ entradas"
+    assert lines[0]["normalization_incomplete"] is False
+
+
 @pytest.mark.parametrize(
     ("label", "expected_snippet"),
     [
@@ -239,6 +296,7 @@ def test_guard_rejects_a_proposal_that_alters_a_numeral(
 def test_normalize_prompt_gives_distinct_delimiter_guidance_per_label(
     label: str | None, expected_snippet: str
 ) -> None:
+    """Issue #29: Prompt provides label-specific delimiter instructions (display/inline/text)."""
     prompt = review_module._normalize_prompt("2+2=4", label)
     assert expected_snippet in prompt
     # The transcription section itself stays label-independent, so callers
@@ -250,6 +308,7 @@ def test_normalize_prompt_gives_distinct_delimiter_guidance_per_label(
 def test_a_malformed_llm_response_is_treated_as_incomplete(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, submission: Submission
 ) -> None:
+    """Empty LLM response (only whitespace) is rejected; normalized_text stays None."""
     monkeypatch.setattr(
         review_module, "recognise_image", lambda *a, **kw: [_formula_region("2+2=4")]
     )
