@@ -42,3 +42,21 @@ class QuestionRead(QuestionBase):
     position: int
     created_at: datetime
     updated_at: datetime
+
+
+class QuestionDraft(BaseModel):
+    """One candidate question proposed by `POST .../question-paper/extract`.
+
+    Not a `Question` row and never persisted as one: the teacher reviews
+    these drafts and only `POST .../questions` (unchanged by issue #32)
+    turns an accepted draft into a real, ordered `Question`.
+    """
+
+    number: str
+    statement: str
+
+
+class QuestionExtractionRead(BaseModel):
+    """Response of `POST .../question-paper/extract`: the draft candidates found."""
+
+    questions: list[QuestionDraft]
