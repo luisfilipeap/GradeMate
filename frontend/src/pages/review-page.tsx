@@ -11,6 +11,7 @@ import { PageCanvas } from '@/components/page-canvas'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { api, type OcrLine, type Review, type Student } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -46,6 +47,7 @@ export function ReviewPage() {
   const [student, setStudent] = useState<Student | null>(null)
   const [pageIndex, setPageIndex] = useState(0)
   const [activeLineId, setActiveLineId] = useState<string | null>(null)
+  const [activePanel, setActivePanel] = useState<'transcript' | 'regions'>('transcript')
   const [loading, setLoading] = useState(true)
   const [running, setRunning] = useState(false)
 
@@ -182,51 +184,62 @@ export function ReviewPage() {
                 page={page}
                 activeLineId={activeLineId}
                 onHoverLine={setActiveLineId}
-                onSelectLine={setActiveLineId}
+                onSelectLine={(lineId) => {
+                  setActiveLineId(lineId)
+                  setActivePanel('regions')
+                }}
               />
             ) : null}
           </div>
 
-          <div className="space-y-6 xl:sticky xl:top-6 xl:self-start">
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="font-heading text-sm font-semibold">Recognised regions</h2>
-                <Button variant="ghost" size="sm" onClick={() => void acceptAll()}>
-                  <Check className="size-4" />
-                  Accept all
-                </Button>
-              </div>
-              <ul className="max-h-[45vh] space-y-1 overflow-y-auto pr-1">
-                {page?.lines.map((line) => (
-                  <LineRow
-                    key={line.id}
-                    line={line}
-                    active={line.id === activeLineId}
-                    onHover={setActiveLineId}
-                    onPatched={patchLine}
-                  />
-                ))}
-              </ul>
-            </section>
+          <div className="xl:sticky xl:top-6 xl:self-start">
+            <Tabs
+              value={activePanel}
+              onValueChange={(value) => setActivePanel(value as 'transcript' | 'regions')}
+            >
+              <TabsList>
+                <TabsTrigger value="transcript">Transcript</TabsTrigger>
+                <TabsTrigger value="regions">Recognised regions</TabsTrigger>
+              </TabsList>
 
-            <section className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h2 className="font-heading text-sm font-semibold">Transcript</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={!transcript}
-                  onClick={() => {
-                    void navigator.clipboard.writeText(transcript)
-                    toast.success('Transcript copied.')
-                  }}
-                >
-                  <Copy className="size-4" />
-                  Copy
-                </Button>
-              </div>
-              <TranscriptPreview text={transcript} />
-            </section>
+              <TabsContent value="transcript" className="mt-4 space-y-2">
+                <div className="flex items-center justify-end">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={!transcript}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(transcript)
+                      toast.success('Transcript copied.')
+                    }}
+                  >
+                    <Copy className="size-4" />
+                    Copy
+                  </Button>
+                </div>
+                <TranscriptPreview text={transcript} />
+              </TabsContent>
+
+              <TabsContent value="regions" className="mt-4 space-y-2">
+                <div className="flex items-center justify-end">
+                  <Button variant="ghost" size="sm" onClick={() => void acceptAll()}>
+                    <Check className="size-4" />
+                    Accept all
+                  </Button>
+                </div>
+                <ul className="max-h-[70vh] space-y-1 overflow-y-auto pr-1">
+                  {page?.lines.map((line) => (
+                    <LineRow
+                      key={line.id}
+                      line={line}
+                      active={line.id === activeLineId}
+                      onHover={setActiveLineId}
+                      onPatched={patchLine}
+                    />
+                  ))}
+                </ul>
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       )}
@@ -262,7 +275,7 @@ function TranscriptPreview({ text }: { text: string }) {
   return (
     <div
       ref={containerRef}
-      className="bg-muted/50 max-h-[35vh] overflow-auto rounded-lg border p-3 text-sm whitespace-pre-wrap"
+      className="bg-muted/50 max-h-[70vh] overflow-auto rounded-lg border p-3 text-sm whitespace-pre-wrap"
     >
       {text || 'Accept a line to start building the transcript.'}
     </div>
