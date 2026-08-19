@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -70,6 +71,15 @@ class Assessment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     question_paper_file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     question_paper_page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     question_paper_checksum_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # The OCR transcript of the question paper (issue #32), one string per
+    # page, in reading order. Set only once OCR of a `POST .../extract` run
+    # succeeds; a later LLM/guard failure in that same run never rolls it
+    # back (see `extract_questions`), mirroring how `run_ocr` commits a
+    # submission's OCR reading before normalization runs on top of it.
+    # Reset to `None` when the paper itself is replaced, since a transcript
+    # of the old file is meaningless once it is gone.
+    question_paper_ocr_pages: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     class_group: Mapped[ClassGroup] = relationship(back_populates="assessments")
     submissions: Mapped[list[Submission]] = relationship(
