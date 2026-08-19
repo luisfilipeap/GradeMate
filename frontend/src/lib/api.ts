@@ -47,6 +47,10 @@ export type Assessment = {
   created_at: string
   updated_at: string
   submission_count: number
+  question_count: number
+  /** Metadata about the uploaded question paper. `null` means none was uploaded yet. */
+  question_paper_original_filename: string | null
+  question_paper_page_count: number | null
 }
 
 export type Submission = {
@@ -97,6 +101,29 @@ export type Review = {
   assessment_id: string
   page_count: number
   pages: SubmissionPage[]
+}
+
+export type Question = {
+  id: string
+  assessment_id: string
+  // The teacher's own numbering ("1", "1a", "2.1"...), not assumed numeric.
+  number: string
+  statement: string
+  // Reading order within the assessment; independent of what `number` reads.
+  position: number
+  created_at: string
+  updated_at: string
+}
+
+export type QuestionInput = {
+  number: string
+  statement: string
+}
+
+/** An extraction candidate: same shape as `QuestionInput`, not yet a `Question`. */
+export type QuestionDraft = {
+  number: string
+  statement: string
 }
 
 export type ClassInput = {
@@ -188,6 +215,35 @@ export const api = {
   deleteSubmission: (submissionId: string) =>
     request<void>(`/submissions/${submissionId}`, { method: 'DELETE' }),
   submissionFileUrl: (submissionId: string) => `/api/submissions/${submissionId}/file`,
+
+  uploadQuestionPaper: (assessmentId: string, file: File) => {
+    const body = new FormData()
+    body.append('file', file)
+    // No Content-Type header: the browser sets the multipart boundary itself.
+    return request<void>(`/assessments/${assessmentId}/question-paper`, {
+      method: 'PUT',
+      body,
+    })
+  },
+  questionPaperFileUrl: (assessmentId: string) =>
+    `/api/assessments/${assessmentId}/question-paper/file`,
+
+  listQuestions: (assessmentId: string) =>
+    request<Question[]>(`/assessments/${assessmentId}/questions`),
+  createQuestion: (assessmentId: string, input: QuestionInput) =>
+    request<Question>(`/assessments/${assessmentId}/questions`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  updateQuestion: (questionId: string, input: Partial<QuestionInput>) =>
+    request<Question>(`/questions/${questionId}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deleteQuestion: (questionId: string) =>
+    request<void>(`/questions/${questionId}`, { method: 'DELETE' }),
+  extractQuestions: (assessmentId: string) =>
+    request<{ questions: QuestionDraft[] }>(
+      `/assessments/${assessmentId}/question-paper/extract`,
+      { method: 'POST' },
+    ),
 
   getReview: (submissionId: string) => request<Review>(`/submissions/${submissionId}/review`),
   runOcr: (submissionId: string) =>
