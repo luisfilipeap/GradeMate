@@ -56,8 +56,10 @@ _DISPLAY_BRACKET = re.compile(r"\\\[.*?\\\]", re.DOTALL)
 _INLINE_DOLLAR = re.compile(r"\$.*?\$", re.DOTALL)
 _INLINE_PAREN = re.compile(r"\\\(.*?\\\)", re.DOTALL)
 
-# A bare LaTeX command: a backslash followed by one or more letters.
-_BARE_COMMAND = re.compile(r"\\[a-zA-Z]+")
+# A bare LaTeX command: a backslash followed by 2+ letters.
+# Escape sequences (\n, \t, \r, etc.) have only 1 letter and are valid in JSON,
+# so they should not be flagged as bare LaTeX commands.
+_BARE_COMMAND = re.compile(r"\\[a-zA-Z]{2,}")
 
 
 def is_eligible(text: str, label: str | None) -> bool:
