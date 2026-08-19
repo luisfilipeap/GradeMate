@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 
 import { EmptyState } from '@/components/empty-state'
 import { PageHeader } from '@/components/page-header'
+import { QuestionPaperSection } from '@/components/question-paper-section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -77,6 +78,8 @@ export function AssessmentPage() {
         </span>
         <span>Maximum score {assessment.max_score}</span>
       </div>
+
+      <QuestionPaperSection assessment={assessment} onAssessmentChange={setAssessment} />
 
       {students.length === 0 ? (
         <EmptyState

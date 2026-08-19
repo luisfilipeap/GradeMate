@@ -1,12 +1,10 @@
-import 'katex/dist/katex.min.css'
-
-import renderMathInElement from 'katex/contrib/auto-render'
 import { ArrowLeft, Check, Copy, Pencil, ScanText, Undo2, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { EmptyState } from '@/components/empty-state'
+import { LaTeXPreview } from '@/components/latex-preview'
 import { PageCanvas } from '@/components/page-canvas'
 import { PageHeader } from '@/components/page-header'
 import { Badge } from '@/components/ui/badge'
@@ -217,7 +215,11 @@ export function ReviewPage() {
                     Copy
                   </Button>
                 </div>
-                <TranscriptPreview text={transcript} />
+                <LaTeXPreview
+                  text={transcript}
+                  emptyText="Accept a line to start building the transcript."
+                  className="bg-muted/50 max-h-[70vh] overflow-auto rounded-lg border p-3"
+                />
               </TabsContent>
 
               <TabsContent value="regions" className="mt-4 space-y-2">
@@ -244,41 +246,6 @@ export function ReviewPage() {
         </div>
       )}
     </>
-  )
-}
-
-const KATEX_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '\\[', right: '\\]', display: true },
-  { left: '$', right: '$', display: false },
-  { left: '\\(', right: '\\)', display: false },
-]
-
-/**
- * Renders the whole transcript as one continuous block, running KaTeX's
- * auto-render over it so `$…$`/`$$…$$` segments become formulas while plain
- * text stays as-is. Runs again on every `text` change, so edits to any line
- * show up immediately.
- */
-function TranscriptPreview({ text }: { text: string }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    renderMathInElement(container, {
-      delimiters: KATEX_DELIMITERS,
-      throwOnError: false,
-    })
-  }, [text])
-
-  return (
-    <div
-      ref={containerRef}
-      className="bg-muted/50 max-h-[70vh] overflow-auto rounded-lg border p-3 text-sm whitespace-pre-wrap"
-    >
-      {text || 'Accept a line to start building the transcript.'}
-    </div>
   )
 }
 
